@@ -9,6 +9,9 @@ Tonight TV is a private synchronized watch-room built with Next.js and Supabase.
   browser-safe publishable key.
 - Enable Anonymous Sign-Ins in the Supabase project's Auth settings before
   exercising the viewer identity flow.
+- In the hosted project's Realtime settings, disable **Allow public access**.
+  Tonight TV room clients always subscribe to private `room:<room_uuid>`
+  channels authorized by `realtime.messages` RLS.
 - Run `npm install`, then `npm run dev`.
 
 Only `NEXT_PUBLIC_SUPABASE_URL` and
