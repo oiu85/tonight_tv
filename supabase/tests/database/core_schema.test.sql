@@ -78,8 +78,8 @@ select is(
         'chat_messages'
       )
   ),
-  0::bigint,
-  'Prompt 2 leaves all application tables deny-by-default with no policies'
+  6::bigint,
+  'Prompt 3 installs exactly one member-scoped SELECT policy per application table'
 );
 
 select is(
@@ -598,7 +598,7 @@ set local role authenticated;
 select is(
   (select count(*) from public.rooms),
   0::bigint,
-  'authenticated reads return no rows until Prompt 3 adds room policies'
+  'authenticated role without a verified user identity cannot read rooms'
 );
 
 reset role;

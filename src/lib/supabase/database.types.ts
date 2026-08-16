@@ -248,7 +248,45 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      create_room: {
+        Args: { p_name: string }
+        Returns: {
+          anchor_position_sec: number
+          anchor_server_time: string
+          created_at: string
+          owner_user_id: string
+          playback_status: Database["public"]["Enums"]["playback_status"]
+          room_id: string
+          room_name: string
+          state_version: number
+          updated_at: string
+        }[]
+      }
+      get_room_join_preview: {
+        Args: { p_room_id: string }
+        Returns: {
+          current_title: string
+          has_active_media: boolean
+          room_id: string
+          room_name: string
+        }[]
+      }
+      get_room_snapshot: {
+        Args: { p_chat_limit?: number; p_room_id: string }
+        Returns: Json
+      }
+      get_server_time: { Args: never; Returns: string }
+      join_room: {
+        Args: { p_display_name: string; p_room_id: string }
+        Returns: {
+          display_name: string
+          joined_at: string
+          room_id: string
+          session_id: string
+          updated_at: string
+          user_id: string
+        }[]
+      }
     }
     Enums: {
       media_source_type: "auto" | "mp4" | "hls"
