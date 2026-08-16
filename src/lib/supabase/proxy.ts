@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { getPublicSupabaseConfig } from "./config";
+import type { Database } from "./database.types";
 
 /** Refreshes/verifies the cookie-backed Auth token without applying route policy. */
 export async function updateSupabaseSession(
@@ -10,7 +11,7 @@ export async function updateSupabaseSession(
   let response = NextResponse.next({ request });
   const { url, publishableKey } = getPublicSupabaseConfig();
 
-  const supabase = createServerClient(url, publishableKey, {
+  const supabase = createServerClient<Database>(url, publishableKey, {
     cookies: {
       getAll() {
         return request.cookies.getAll();

@@ -1,6 +1,7 @@
 import type { Session, SupabaseClient, User } from "@supabase/supabase-js";
 
 import { createBrowserSupabaseClient } from "../supabase/browser";
+import type { Database } from "../supabase/database.types";
 
 export type AuthState =
   | Readonly<{ status: "unauthenticated"; session: null; user: null }>
@@ -54,7 +55,7 @@ export function isAnonymousUser(user: User): boolean {
   return user.is_anonymous === true;
 }
 
-export function createAuthService(client: SupabaseClient): AuthService {
+export function createAuthService(client: SupabaseClient<Database>): AuthService {
   let pendingViewerIdentity: Promise<ViewerIdentity> | undefined;
 
   async function getCurrentAuth(): Promise<AuthState> {

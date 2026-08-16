@@ -3,13 +3,16 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 
 import { getPublicSupabaseConfig } from "./config";
+import type { Database } from "./database.types";
 
 /** Creates a request-scoped Supabase client backed by Next.js cookies. */
-export async function createServerSupabaseClient(): Promise<SupabaseClient> {
+export async function createServerSupabaseClient(): Promise<
+  SupabaseClient<Database>
+> {
   const cookieStore = await cookies();
   const { url, publishableKey } = getPublicSupabaseConfig();
 
-  return createServerClient(url, publishableKey, {
+  return createServerClient<Database>(url, publishableKey, {
     cookies: {
       getAll() {
         return cookieStore.getAll();
