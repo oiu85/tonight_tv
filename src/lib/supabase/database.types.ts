@@ -287,6 +287,99 @@ export type Database = {
           user_id: string
         }[]
       }
+      room_mark_ended: {
+        Args: { p_expected_version: number; p_room_id: string }
+        Returns: {
+          anchor_position_sec: number
+          anchor_server_time: string
+          current_media_id: string
+          room_id: string
+          state_version: number
+          status: Database["public"]["Enums"]["playback_status"]
+          updated_at: string
+        }[]
+      }
+      room_pause: {
+        Args: { p_expected_version: number; p_room_id: string }
+        Returns: {
+          anchor_position_sec: number
+          anchor_server_time: string
+          current_media_id: string
+          room_id: string
+          state_version: number
+          status: Database["public"]["Enums"]["playback_status"]
+          updated_at: string
+        }[]
+      }
+      room_play: {
+        Args: { p_expected_version: number; p_room_id: string }
+        Returns: {
+          anchor_position_sec: number
+          anchor_server_time: string
+          current_media_id: string
+          room_id: string
+          state_version: number
+          status: Database["public"]["Enums"]["playback_status"]
+          updated_at: string
+        }[]
+      }
+      room_play_next: {
+        Args: { p_expected_version: number; p_room_id: string }
+        Returns: {
+          anchor_position_sec: number
+          anchor_server_time: string
+          current_media_id: string
+          room_id: string
+          state_version: number
+          status: Database["public"]["Enums"]["playback_status"]
+          updated_at: string
+        }[]
+      }
+      room_restart: {
+        Args: { p_expected_version: number; p_room_id: string }
+        Returns: {
+          anchor_position_sec: number
+          anchor_server_time: string
+          current_media_id: string
+          room_id: string
+          state_version: number
+          status: Database["public"]["Enums"]["playback_status"]
+          updated_at: string
+        }[]
+      }
+      room_seek: {
+        Args: {
+          p_expected_version: number
+          p_room_id: string
+          p_target_position_sec: number
+        }
+        Returns: {
+          anchor_position_sec: number
+          anchor_server_time: string
+          current_media_id: string
+          room_id: string
+          state_version: number
+          status: Database["public"]["Enums"]["playback_status"]
+          updated_at: string
+        }[]
+      }
+      room_select_media: {
+        Args: {
+          p_autoplay: boolean
+          p_expected_version: number
+          p_media_id: string
+          p_room_id: string
+        }
+        Returns: {
+          anchor_position_sec: number
+          anchor_server_time: string
+          current_media_id: string
+          room_id: string
+          state_version: number
+          status: Database["public"]["Enums"]["playback_status"]
+          updated_at: string
+        }[]
+      }
     }
     Enums: {
       media_source_type: "auto" | "mp4" | "hls"
