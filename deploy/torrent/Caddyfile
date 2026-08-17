@@ -1,0 +1,25 @@
+{$TORRENT_MEDIA_HOST} {
+  @preflight method OPTIONS
+  handle @preflight {
+    header Access-Control-Allow-Origin "{$TONIGHT_TV_APP_ORIGIN}"
+    header Access-Control-Allow-Methods "GET, HEAD, OPTIONS"
+    header Access-Control-Allow-Headers "Range, Content-Type"
+    header Access-Control-Max-Age "86400"
+    respond "" 204
+  }
+
+  @media path /hls/* /torrent-http-proxy/*
+  handle @media {
+    reverse_proxy webtor:8080 {
+      header_down -Access-Control-Allow-Origin
+      header_down Access-Control-Allow-Origin "{$TONIGHT_TV_APP_ORIGIN}"
+      header_down Access-Control-Allow-Methods "GET, HEAD, OPTIONS"
+      header_down Access-Control-Allow-Headers "Range, Content-Type"
+      header_down Vary "Origin"
+    }
+  }
+
+  # The Webtor UI and REST control plane are intentionally unavailable on the
+  # public media origin. Next.js reaches /rest-api/ over a private network.
+  respond 404
+}

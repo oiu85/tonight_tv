@@ -51,10 +51,23 @@ export type Database = {
           id: string
           queue_position: number
           room_id: string
+          source_revision: number
           source_type: Database["public"]["Enums"]["media_source_type"]
-          source_url: string
+          source_url: string | null
           title: string
+          torrent_file_index: number | null
+          torrent_file_name: string | null
+          torrent_file_path: string | null
+          torrent_file_size: number | null
+          torrent_info_hash: string | null
+          torrent_input_kind:
+            | Database["public"]["Enums"]["torrent_input_kind"]
+            | null
+          torrent_magnet_uri: string | null
+          torrent_metadata_path: string | null
+          torrent_name: string | null
           updated_at: string
+          youtube_video_id: string | null
         }
         Insert: {
           created_at?: string
@@ -62,10 +75,23 @@ export type Database = {
           id?: string
           queue_position: number
           room_id: string
+          source_revision?: number
           source_type?: Database["public"]["Enums"]["media_source_type"]
-          source_url: string
+          source_url?: string | null
           title: string
+          torrent_file_index?: number | null
+          torrent_file_name?: string | null
+          torrent_file_path?: string | null
+          torrent_file_size?: number | null
+          torrent_info_hash?: string | null
+          torrent_input_kind?:
+            | Database["public"]["Enums"]["torrent_input_kind"]
+            | null
+          torrent_magnet_uri?: string | null
+          torrent_metadata_path?: string | null
+          torrent_name?: string | null
           updated_at?: string
+          youtube_video_id?: string | null
         }
         Update: {
           created_at?: string
@@ -73,10 +99,23 @@ export type Database = {
           id?: string
           queue_position?: number
           room_id?: string
+          source_revision?: number
           source_type?: Database["public"]["Enums"]["media_source_type"]
-          source_url?: string
+          source_url?: string | null
           title?: string
+          torrent_file_index?: number | null
+          torrent_file_name?: string | null
+          torrent_file_path?: string | null
+          torrent_file_size?: number | null
+          torrent_info_hash?: string | null
+          torrent_input_kind?:
+            | Database["public"]["Enums"]["torrent_input_kind"]
+            | null
+          torrent_magnet_uri?: string | null
+          torrent_metadata_path?: string | null
+          torrent_name?: string | null
           updated_at?: string
+          youtube_video_id?: string | null
         }
         Relationships: [
           {
@@ -250,10 +289,21 @@ export type Database = {
     Functions: {
       add_media_item: {
         Args: {
+          p_media_id?: string
           p_room_id: string
           p_source_type?: Database["public"]["Enums"]["media_source_type"]
-          p_source_url: string
+          p_source_url?: string
           p_title: string
+          p_torrent_file_index?: number
+          p_torrent_file_name?: string
+          p_torrent_file_path?: string
+          p_torrent_file_size?: number
+          p_torrent_info_hash?: string
+          p_torrent_input_kind?: Database["public"]["Enums"]["torrent_input_kind"]
+          p_torrent_magnet_uri?: string
+          p_torrent_metadata_path?: string
+          p_torrent_name?: string
+          p_youtube_video_id?: string
         }
         Returns: {
           created_at: string
@@ -261,11 +311,30 @@ export type Database = {
           id: string
           queue_position: number
           room_id: string
+          source_revision: number
           source_type: Database["public"]["Enums"]["media_source_type"]
-          source_url: string
+          source_url: string | null
           title: string
+          torrent_file_index: number | null
+          torrent_file_name: string | null
+          torrent_file_path: string | null
+          torrent_file_size: number | null
+          torrent_info_hash: string | null
+          torrent_input_kind:
+            | Database["public"]["Enums"]["torrent_input_kind"]
+            | null
+          torrent_magnet_uri: string | null
+          torrent_metadata_path: string | null
+          torrent_name: string | null
           updated_at: string
+          youtube_video_id: string | null
         }[]
+        SetofOptions: {
+          from: "*"
+          to: "media_items"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       create_room: {
         Args: { p_name: string }
@@ -319,9 +388,19 @@ export type Database = {
         Args: {
           p_media_id: string
           p_room_id: string
-          p_source_type: Database["public"]["Enums"]["media_source_type"]
-          p_source_url: string
+          p_source_type?: Database["public"]["Enums"]["media_source_type"]
+          p_source_url?: string
           p_title: string
+          p_torrent_file_index?: number
+          p_torrent_file_name?: string
+          p_torrent_file_path?: string
+          p_torrent_file_size?: number
+          p_torrent_info_hash?: string
+          p_torrent_input_kind?: Database["public"]["Enums"]["torrent_input_kind"]
+          p_torrent_magnet_uri?: string
+          p_torrent_metadata_path?: string
+          p_torrent_name?: string
+          p_youtube_video_id?: string
         }
         Returns: {
           created_at: string
@@ -329,11 +408,30 @@ export type Database = {
           id: string
           queue_position: number
           room_id: string
+          source_revision: number
           source_type: Database["public"]["Enums"]["media_source_type"]
-          source_url: string
+          source_url: string | null
           title: string
+          torrent_file_index: number | null
+          torrent_file_name: string | null
+          torrent_file_path: string | null
+          torrent_file_size: number | null
+          torrent_info_hash: string | null
+          torrent_input_kind:
+            | Database["public"]["Enums"]["torrent_input_kind"]
+            | null
+          torrent_magnet_uri: string | null
+          torrent_metadata_path: string | null
+          torrent_name: string | null
           updated_at: string
+          youtube_video_id: string | null
         }[]
+        SetofOptions: {
+          from: "*"
+          to: "media_items"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       get_room_join_preview: {
         Args: { p_room_id: string }
@@ -368,9 +466,38 @@ export type Database = {
           id: string
           queue_position: number
           room_id: string
+          source_revision: number
           source_type: Database["public"]["Enums"]["media_source_type"]
-          source_url: string
+          source_url: string | null
           title: string
+          torrent_file_index: number | null
+          torrent_file_name: string | null
+          torrent_file_path: string | null
+          torrent_file_size: number | null
+          torrent_info_hash: string | null
+          torrent_input_kind:
+            | Database["public"]["Enums"]["torrent_input_kind"]
+            | null
+          torrent_magnet_uri: string | null
+          torrent_metadata_path: string | null
+          torrent_name: string | null
+          updated_at: string
+          youtube_video_id: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "media_items"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      rename_room: {
+        Args: { p_name: string; p_room_id: string }
+        Returns: {
+          created_at: string
+          id: string
+          name: string
+          owner_user_id: string
           updated_at: string
         }[]
       }
@@ -382,21 +509,30 @@ export type Database = {
           id: string
           queue_position: number
           room_id: string
+          source_revision: number
           source_type: Database["public"]["Enums"]["media_source_type"]
-          source_url: string
+          source_url: string | null
           title: string
+          torrent_file_index: number | null
+          torrent_file_name: string | null
+          torrent_file_path: string | null
+          torrent_file_size: number | null
+          torrent_info_hash: string | null
+          torrent_input_kind:
+            | Database["public"]["Enums"]["torrent_input_kind"]
+            | null
+          torrent_magnet_uri: string | null
+          torrent_metadata_path: string | null
+          torrent_name: string | null
           updated_at: string
+          youtube_video_id: string | null
         }[]
-      }
-      rename_room: {
-        Args: { p_name: string; p_room_id: string }
-        Returns: {
-          created_at: string
-          id: string
-          name: string
-          owner_user_id: string
-          updated_at: string
-        }[]
+        SetofOptions: {
+          from: "*"
+          to: "media_items"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       room_mark_ended: {
         Args: { p_expected_version: number; p_room_id: string }
@@ -504,8 +640,9 @@ export type Database = {
       }
     }
     Enums: {
-      media_source_type: "auto" | "mp4" | "hls"
+      media_source_type: "auto" | "mp4" | "hls" | "youtube" | "torrent"
       playback_status: "idle" | "paused" | "playing" | "ended"
+      torrent_input_kind: "magnet" | "torrent_file"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -633,8 +770,9 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      media_source_type: ["auto", "mp4", "hls"],
+      media_source_type: ["auto", "mp4", "hls", "youtube", "torrent"],
       playback_status: ["idle", "paused", "playing", "ended"],
+      torrent_input_kind: ["magnet", "torrent_file"],
     },
   },
 } as const

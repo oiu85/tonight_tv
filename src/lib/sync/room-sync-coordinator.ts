@@ -24,10 +24,12 @@ import {
   createRoomClockCalibrator,
   type ClockCalibrator,
 } from "./clock-calibrator";
+import { MediaRuntimeError } from "../media/media-source";
 import {
   calculateDrift,
   comparePlaybackVersions,
   DEFAULT_DRIFT_POLICY,
+  SEEK_ONLY_DRIFT_POLICY,
   expectedCanonicalPosition,
   selectCorrectionDecision,
   type CanonicalPlaybackState,
@@ -41,12 +43,15 @@ const DEFAULT_LONG_HIDDEN_THRESHOLD_MS = 15_000;
 export type RoomSyncStatus =
   | "idle"
   | "starting"
+  | "aligning"
   | "synchronizing"
   | "live"
   | "paused"
   | "ended"
   | "room_idle"
   | "buffering"
+  | "seeking"
+  | "catching_up"
   | "playback_blocked"
   | "error"
   | "stopped";
@@ -107,7 +112,10 @@ export type RoomSyncCoordinator = Readonly<{
   sendChatMessage: (body: string) => Promise<ChatMessage>;
   handleVisibilityChange: (visible: boolean) => Promise<void>;
   handleBufferingChange: (buffering: boolean) => Promise<void>;
+  handleMediaError: (error: MediaRuntimeError) => void;
+  applyCommandResult: (state: CanonicalPlaybackState) => Promise<void>;
   getState: () => RoomSyncState;
+  getExpectedPosition: () => number;
   /**
    * Returns the viewer's behind-live seconds, derived from the calibrated
    * server clock and the canonical playback state. Returns 0 when the room
@@ -134,10 +142,16 @@ function snapshotMedia(snapshot: RoomSnapshot): SyncMedia | null {
   const media = snapshot.current_media;
   return media
     ? {
-        id: media.id,
-        title: media.title,
-        sourceUrl: media.source_url,
-        sourceType: media.source_type,
+      id: media.id,
+      roomId: snapshot.room.id,
+      title: media.title,
+      sourceUrl: media.source_url,
+      sourceType: media.source_type,
+      youtubeVideoId: media.youtube_video_id,
+      sourceRevision: media.source_revision,
+      torrentInfoHash: media.torrent_info_hash,
+      torrentFileIndex: media.torrent_file_index,
+      torrentFilePath: media.torrent_file_path,
       }
     : null;
 }
@@ -195,6 +209,14 @@ export function createRoomSyncCoordinator(
   let chatMessages: readonly ChatMessage[] = Object.freeze([]);
   let buffering = false;
   let hiddenAtMonotonicMs: number | null = null;
+  let localSeekInProgress = false;
+  let recoveringFromBuffer = false;
+  let mediaFailed = false;
+  let pendingAlignmentVersion: number | null = null;
+  let alignmentGeneration = 0;
+  let alignmentPromise: Promise<void> | null = null;
+  let alignmentRequested = false;
+  let alignmentForceRequested = false;
   let rateCorrectionActive = false;
   let startPromise: Promise<void> | null = null;
   let reconciliationPromise: Promise<void> | null = null;
@@ -227,6 +249,13 @@ export function createRoomSyncCoordinator(
     nextReason: RoomSyncReason | null = reason,
     nextError: RoomSyncError | RoomChannelError | null = null,
   ): void {
+    if (
+      status === nextStatus &&
+      reason === nextReason &&
+      error === nextError
+    ) {
+      return;
+    }
     status = nextStatus;
     reason = nextReason;
     error = nextError;
@@ -258,12 +287,46 @@ export function createRoomSyncCoordinator(
     }
   }
 
-  async function matchPlaybackIntent(state: CanonicalPlaybackState): Promise<void> {
+  function getSeekableTarget(positionSec: number): number | null {
+    if (player.getSeekableTarget) {
+      return player.getSeekableTarget(positionSec);
+    }
+    return player.isSeekable(positionSec) ? positionSec : null;
+  }
+
+  function canonicalStatus(
+    state: CanonicalPlaybackState,
+  ): Extract<RoomSyncStatus, "live" | "paused" | "ended" | "room_idle"> {
+    if (state.status === "playing") {
+      return "live";
+    }
+    if (state.status === "paused") {
+      return "paused";
+    }
+    if (state.status === "ended") {
+      return "ended";
+    }
+    return "room_idle";
+  }
+
+  async function matchPlaybackIntent(
+    state: CanonicalPlaybackState,
+    alignmentToken: number,
+  ): Promise<boolean> {
+    if (alignmentToken !== alignmentGeneration) {
+      return false;
+    }
     if (state.status === "playing") {
       if (player.isPaused()) {
         try {
           await player.play();
         } catch (cause) {
+          if (
+            !(cause instanceof MediaRuntimeError) ||
+            cause.category !== "autoplay_permission_blocked"
+          ) {
+            throw cause;
+          }
           setStatus(
             "playback_blocked",
             reason,
@@ -273,32 +336,44 @@ export function createRoomSyncCoordinator(
               { cause },
             ),
           );
+          return false;
         }
       }
-      return;
+      return alignmentToken === alignmentGeneration;
     }
 
     if (!player.isPaused()) {
       await player.pause();
     }
+    return alignmentToken === alignmentGeneration;
   }
 
-  async function alignPlayer(forceAlignment: boolean): Promise<void> {
+  async function alignPlayerOnce(forceAlignment: boolean): Promise<void> {
     const state = canonicalPlayback;
     if (!state) {
+      return;
+    }
+    const alignmentToken = alignmentGeneration;
+    const effectiveForceAlignment =
+      forceAlignment || pendingAlignmentVersion === state.state_version;
+
+    if (hiddenAtMonotonicMs !== null || mediaFailed) {
+      resetPlaybackRate();
       return;
     }
 
     if (state.status === "idle") {
       resetPlaybackRate();
-      await matchPlaybackIntent(state);
+      buffering = false;
+      pendingAlignmentVersion = null;
+      await matchPlaybackIntent(state, alignmentToken);
       setStatus("room_idle");
       return;
     }
 
     if (!player.isReady()) {
       resetPlaybackRate();
-      setStatus("buffering");
+      setStatus(player.getMediaId() === state.current_media_id ? "aligning" : "starting");
       return;
     }
 
@@ -312,23 +387,61 @@ export function createRoomSyncCoordinator(
     }
 
     const driftSec = calculateDrift(player.getCurrentTime(), expectedPosition);
+    const seekableTarget = getSeekableTarget(expectedPosition);
     if (
-      forceAlignment &&
+      effectiveForceAlignment &&
       Math.abs(driftSec) >= FORCE_ALIGNMENT_TOLERANCE_SEC &&
-      player.isSeekable(expectedPosition)
+      seekableTarget === null
     ) {
       resetPlaybackRate();
-      await player.seek(expectedPosition);
+      pendingAlignmentVersion = state.state_version;
+      if (!player.isPaused()) {
+        await player.pause();
+      }
+      if (alignmentToken === alignmentGeneration) {
+        setStatus("aligning");
+      }
+      return;
+    }
+
+    if (
+      effectiveForceAlignment &&
+      Math.abs(driftSec) >= FORCE_ALIGNMENT_TOLERANCE_SEC &&
+      seekableTarget !== null
+    ) {
+      resetPlaybackRate();
+      localSeekInProgress = true;
+      setStatus("seeking");
+      try {
+        if (alignmentToken !== alignmentGeneration) {
+          return;
+        }
+        await player.seek(seekableTarget);
+      } finally {
+        localSeekInProgress = false;
+      }
+      if (alignmentToken !== alignmentGeneration) {
+        return;
+      }
+      pendingAlignmentVersion = null;
     } else {
+      if (effectiveForceAlignment) {
+        pendingAlignmentVersion = null;
+      }
       const decision = selectCorrectionDecision({
         state,
         driftSec,
         expectedPositionSec: expectedPosition,
         playerReady: player.isReady(),
-        seekable: player.isSeekable(expectedPosition),
-        buffering,
+        seekable: seekableTarget !== null,
+        buffering: buffering || localSeekInProgress,
         currentPlaybackRate: player.getPlaybackRate(),
         rateCorrectionActive,
+        supportsFinePlaybackRateCorrection:
+          player.getCapabilities().supportsFinePlaybackRateCorrection,
+        policy: player.getCapabilities().supportsFinePlaybackRateCorrection
+          ? DEFAULT_DRIFT_POLICY
+          : SEEK_ONLY_DRIFT_POLICY,
       });
 
       switch (decision.kind) {
@@ -345,32 +458,76 @@ export function createRoomSyncCoordinator(
             player.setPlaybackRate(decision.rate);
           }
           rateCorrectionActive = true;
+          if (recoveringFromBuffer) {
+            setStatus("catching_up");
+          }
           break;
         case "seek":
           if (decision.resetRate) {
             resetPlaybackRate();
           }
-          await player.seek(decision.positionSec);
+          if (seekableTarget !== null) {
+            localSeekInProgress = true;
+            setStatus(recoveringFromBuffer ? "catching_up" : "seeking");
+            try {
+              if (alignmentToken !== alignmentGeneration) {
+                return;
+              }
+              await player.seek(seekableTarget);
+            } finally {
+              localSeekInProgress = false;
+            }
+          }
           break;
         case "none":
           break;
       }
     }
 
-    await matchPlaybackIntent(state);
+    if (alignmentToken !== alignmentGeneration) {
+      return;
+    }
+    const intentMatched = await matchPlaybackIntent(state, alignmentToken);
+    if (!intentMatched) {
+      return;
+    }
     if (status === "playback_blocked") {
       return;
     }
 
-    setStatus(
-      buffering
-        ? "buffering"
-        : state.status === "playing"
-          ? "live"
-          : state.status === "paused"
-            ? "paused"
-            : "ended",
-    );
+    if (buffering && state.status === "playing") {
+      setStatus("buffering");
+      return;
+    }
+    if (
+      rateCorrectionActive &&
+      recoveringFromBuffer &&
+      state.status === "playing"
+    ) {
+      setStatus("catching_up");
+      return;
+    }
+    recoveringFromBuffer = false;
+    setStatus(canonicalStatus(state));
+  }
+
+  function requestAlignment(forceAlignment: boolean): Promise<void> {
+    alignmentRequested = true;
+    alignmentForceRequested ||= forceAlignment;
+    if (alignmentPromise) {
+      return alignmentPromise;
+    }
+    alignmentPromise = (async () => {
+      while (alignmentRequested) {
+        const shouldForce = alignmentForceRequested;
+        alignmentRequested = false;
+        alignmentForceRequested = false;
+        await alignPlayerOnce(shouldForce);
+      }
+    })().finally(() => {
+      alignmentPromise = null;
+    });
+    return alignmentPromise;
   }
 
   async function applyCanonicalState(
@@ -387,6 +544,11 @@ export function createRoomSyncCoordinator(
     }
 
     canonicalPlayback = nextState;
+    alignmentGeneration += 1;
+    if (buffering && nextState.status !== "playing") {
+      buffering = false;
+      recoveringFromBuffer = false;
+    }
     publishState();
 
     if (nextState.status === "idle") {
@@ -394,7 +556,8 @@ export function createRoomSyncCoordinator(
         await player.loadMedia(null);
       }
       loadedMedia = null;
-      await alignPlayer(forceAlignment);
+      pendingAlignmentVersion = null;
+      await requestAlignment(forceAlignment);
       return;
     }
 
@@ -410,18 +573,29 @@ export function createRoomSyncCoordinator(
       !loadedMedia ||
       loadedMedia.id !== media.id ||
       loadedMedia.sourceUrl !== media.sourceUrl ||
-      loadedMedia.sourceType !== media.sourceType;
+      loadedMedia.sourceType !== media.sourceType ||
+      loadedMedia.youtubeVideoId !== media.youtubeVideoId ||
+      loadedMedia.sourceRevision !== media.sourceRevision ||
+      loadedMedia.torrentInfoHash !== media.torrentInfoHash ||
+      loadedMedia.torrentFileIndex !== media.torrentFileIndex ||
+      loadedMedia.torrentFilePath !== media.torrentFilePath ||
+      mediaFailed;
     if (sourceChanged) {
       resetPlaybackRate();
+      buffering = false;
+      recoveringFromBuffer = false;
+      pendingAlignmentVersion = null;
+      setStatus("starting");
       await player.loadMedia(media);
       loadedMedia = media;
+      mediaFailed = false;
       await player.waitUntilReady();
       forceAlignment = true;
     } else if (forceAlignment && !player.isReady()) {
       await player.waitUntilReady();
     }
 
-    await alignPlayer(forceAlignment);
+    await requestAlignment(forceAlignment);
   }
 
   async function applySnapshot(
@@ -537,6 +711,32 @@ export function createRoomSyncCoordinator(
     return reconciliationPromise;
   }
 
+  function isAuthoritativeReposition(
+    previous: CanonicalPlaybackState,
+    next: CanonicalPlaybackState,
+  ): boolean {
+    if (
+      previous.current_media_id !== next.current_media_id ||
+      previous.status === "idle" ||
+      next.status === "idle"
+    ) {
+      return true;
+    }
+    const nextAnchorMs = Date.parse(next.anchor_server_time);
+    const previousAtNextAnchor = expectedCanonicalPosition(
+      previous,
+      Number.isFinite(nextAnchorMs)
+        ? nextAnchorMs
+        : clockCalibrator.estimatedServerNowMs(),
+      null,
+    );
+    return (
+      previousAtNextAnchor !== null &&
+      Math.abs(previousAtNextAnchor - next.anchor_position_sec) >=
+        FORCE_ALIGNMENT_TOLERANCE_SEC
+    );
+  }
+
   async function applyRealtimePlayback(
     event: PlaybackStateChangedEvent,
   ): Promise<void> {
@@ -565,15 +765,44 @@ export function createRoomSyncCoordinator(
       return;
     }
 
+    const forceAlignment = isAuthoritativeReposition(canonicalPlayback, event);
     if (snapshot) {
       snapshot = Object.freeze({ ...snapshot, playback: event });
     }
-    await applyCanonicalState(event, snapshotMedia(snapshot!), false);
+    await applyCanonicalState(event, snapshotMedia(snapshot!), forceAlignment);
   }
 
   async function applyRealtimeChat(message: ChatMessage): Promise<void> {
     chatMessages = chatService.mergeLiveMessage(message);
     publishState();
+  }
+
+  async function applyCommandResult(
+    nextState: CanonicalPlaybackState,
+  ): Promise<void> {
+    if (!roomId || nextState.room_id !== roomId || !snapshot) {
+      throw new RoomSyncError(
+        "invalid_start_state",
+        "The playback command result did not belong to the active room.",
+      );
+    }
+    if (
+      canonicalPlayback &&
+      nextState.state_version <= canonicalPlayback.state_version
+    ) {
+      return;
+    }
+    if (nextState.current_media_id !== snapshot.current_media?.id) {
+      await requestReconciliation("room_metadata_changed", {
+        forceAlignment: true,
+      });
+      return;
+    }
+    snapshot = Object.freeze({ ...snapshot, playback: nextState });
+    await applyCanonicalState(nextState, snapshotMedia(snapshot), true);
+    channelService.replacePlaybackVersion(
+      Math.max(channelService.getLastAppliedVersion(), nextState.state_version),
+    );
   }
 
   async function start(options: RoomSyncStartOptions): Promise<void> {
@@ -602,6 +831,11 @@ export function createRoomSyncCoordinator(
     identity = options.identity;
     handlers = options.handlers;
     buffering = false;
+    recoveringFromBuffer = false;
+    mediaFailed = false;
+    pendingAlignmentVersion = null;
+    alignmentRequested = false;
+    alignmentForceRequested = false;
     hiddenAtMonotonicMs = null;
     setStatus("starting", "initial");
 
@@ -673,6 +907,10 @@ export function createRoomSyncCoordinator(
     forceAlignmentRequested = false;
     activeRecalibration = false;
     activeForceAlignment = false;
+    alignmentGeneration += 1;
+    alignmentRequested = false;
+    alignmentForceRequested = false;
+    pendingAlignmentVersion = null;
     resetPlaybackRate();
     await channelService.disconnect();
     roomId = null;
@@ -684,18 +922,27 @@ export function createRoomSyncCoordinator(
     chatService.clear();
     chatMessages = Object.freeze([]);
     buffering = false;
+    recoveringFromBuffer = false;
+    mediaFailed = false;
+    localSeekInProgress = false;
     hiddenAtMonotonicMs = null;
     channelStatus = "closed";
     setStatus("stopped", null);
   }
 
   async function tick(): Promise<void> {
-    if (!canonicalPlayback || status === "stopped" || status === "error") {
+    if (
+      !canonicalPlayback ||
+      status === "stopped" ||
+      status === "error" ||
+      hiddenAtMonotonicMs !== null ||
+      mediaFailed
+    ) {
       return;
     }
 
     try {
-      await alignPlayer(false);
+      await requestAlignment(false);
     } catch (cause) {
       const syncError = asSyncError(
         cause,
@@ -753,16 +1000,76 @@ export function createRoomSyncCoordinator(
   }
 
   async function handleBufferingChange(nextBuffering: boolean): Promise<void> {
-    buffering = nextBuffering;
     if (nextBuffering) {
+      if (
+        canonicalPlayback?.status !== "playing" ||
+        localSeekInProgress ||
+        !player.isReady() ||
+        mediaFailed
+      ) {
+        buffering = false;
+        return;
+      }
+      buffering = true;
+      recoveringFromBuffer = false;
       resetPlaybackRate();
       setStatus("buffering");
       return;
     }
 
+    const wasBuffering = buffering;
+    buffering = false;
+    recoveringFromBuffer = wasBuffering;
+    if (wasBuffering && canonicalPlayback?.status === "playing") {
+      setStatus("catching_up");
+    }
     // Buffer recovery is a purely local recomputation. It never pauses or
     // mutates the authoritative room state.
     await tick();
+  }
+
+  function handleMediaError(mediaError: MediaRuntimeError): void {
+    resetPlaybackRate();
+    buffering = false;
+    recoveringFromBuffer = false;
+    if (mediaError.category === "autoplay_permission_blocked") {
+      setStatus(
+        "playback_blocked",
+        reason,
+        new RoomSyncError(
+          "player_operation_failed",
+          "The browser blocked canonical playback. User interaction is required.",
+          { cause: mediaError },
+        ),
+      );
+      return;
+    }
+    if (mediaError.fatal) {
+      mediaFailed = true;
+      alignmentGeneration += 1;
+      setStatus(
+        "error",
+        reason,
+        new RoomSyncError(
+          "player_operation_failed",
+          "The active media source failed.",
+          { cause: mediaError },
+        ),
+      );
+    }
+  }
+
+  function getExpectedPosition(): number {
+    if (!canonicalPlayback) {
+      return 0;
+    }
+    return (
+      expectedCanonicalPosition(
+        canonicalPlayback,
+        clockCalibrator.estimatedServerNowMs(),
+        player.getDuration(),
+      ) ?? 0
+    );
   }
 
   function getBehindSeconds(): number {
@@ -788,7 +1095,10 @@ export function createRoomSyncCoordinator(
     sendChatMessage,
     handleVisibilityChange,
     handleBufferingChange,
+    handleMediaError,
+    applyCommandResult,
     getState: currentState,
+    getExpectedPosition,
     getBehindSeconds,
   });
 }

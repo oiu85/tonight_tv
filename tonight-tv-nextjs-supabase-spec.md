@@ -150,8 +150,10 @@ The first version does not need:
 - Extracting hidden video URLs.
 - DRM circumvention.
 - Downloading protected streams.
-- Torrent support.
-- Video transcoding.
+- Public Torrent search/indexers or browser BitTorrent clients. Owner-supplied
+  Magnet URIs and `.torrent` metadata are now an approved first-class source.
+- Application-side video transcoding. Torrent remux/transcode may occur only in
+  the separate Webtor Self-Hosted gateway; media bytes still bypass Next.js and Supabase.
 - Server-side media rebroadcasting.
 - Public social profiles.
 - Recommendation algorithms.

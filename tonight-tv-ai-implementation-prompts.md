@@ -119,10 +119,11 @@ The current backend scope explicitly excludes, among other things:
 - social graphs,
 - invitations/password/ban systems unless explicitly requested later,
 - reactions/rich chat,
-- video upload/proxy/transcoding,
+- video upload/proxy/transcoding inside Supabase or Next.js,
 - DRM bypass,
 - protected-link scraping,
-- torrents,
+- Torrent search/indexers/browser clients (owner-supplied Magnet and `.torrent`
+  playback through the external Webtor gateway is now approved),
 - custom WebSocket servers,
 - Express/Socket.IO backend,
 - Redis,
@@ -543,15 +544,19 @@ Use a database enum or a comparably strict database constraint consistent with t
 
 #### 2. Media source type
 
-Support the documented MVP source types:
+Support the source types implemented by the current repository:
 
 ```text
 auto
 mp4
 hls
+youtube
+torrent
 ```
 
-Do not add DASH, YouTube, torrent, DRM-provider, or other source types without an existing requirement.
+Do not add DASH, DRM-provider, or other source types without an existing requirement.
+Torrent is a source resolver only: Webtor Self-Hosted converts one selected
+torrent file to derived HTTP/HLS, while the existing player and Postgres timeline remain authoritative.
 
 #### 3. `rooms`
 

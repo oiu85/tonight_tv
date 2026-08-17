@@ -43,8 +43,16 @@ export type RoomSnapshot = Readonly<{
   current_media: Readonly<{
     id: string;
     title: string;
-    source_url: string;
+    source_url: string | null;
     source_type: Database["public"]["Enums"]["media_source_type"];
+    source_revision: number;
+    youtube_video_id: string | null;
+    torrent_info_hash: string | null;
+    torrent_input_kind: Database["public"]["Enums"]["torrent_input_kind"] | null;
+    torrent_file_index: number | null;
+    torrent_file_path: string | null;
+    torrent_file_name: string | null;
+    torrent_file_size: number | null;
     queue_position: number;
     created_at: string;
     updated_at: string;
@@ -61,8 +69,16 @@ export type RoomSnapshot = Readonly<{
   queue: readonly Readonly<{
     id: string;
     title: string;
-    source_url: string;
+    source_url: string | null;
     source_type: Database["public"]["Enums"]["media_source_type"];
+    source_revision: number;
+    youtube_video_id: string | null;
+    torrent_info_hash: string | null;
+    torrent_input_kind: Database["public"]["Enums"]["torrent_input_kind"] | null;
+    torrent_file_index: number | null;
+    torrent_file_path: string | null;
+    torrent_file_name: string | null;
+    torrent_file_size: number | null;
     queue_position: number;
     created_at: string;
     updated_at: string;

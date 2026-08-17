@@ -784,8 +784,8 @@ Nothing queued yet.
 
 ```text
 Title
-Video URL
-Source type: Auto / MP4 / HLS
+Source type: Auto / MP4 / HLS / YouTube / Torrent
+Conditional direct URL, YouTube Video ID, or Magnet/.torrent inspection flow
 ```
 
 ## Actions
@@ -798,10 +798,14 @@ Source type: Auto / MP4 / HLS
 ## Validation
 
 - title nonempty,
-- valid URL,
+- valid provider-specific input,
 - HTTPS expected in production,
 - supported source type,
 - explain direct-media requirement.
+- require successful Torrent inspection and one selected playable video file.
+
+For Torrent, multiple video candidates require explicit owner selection. Zero
+subtitle files is valid; selected SRT/VTT sidecars reuse the normal subtitle pipeline.
 
 ## Unsupported/watch-page guidance
 

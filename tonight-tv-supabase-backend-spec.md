@@ -119,16 +119,24 @@ Do **not** add any of the following while implementing this backend unless a fut
 - Kafka/queues/microservices.
 - Video upload to Supabase.
 - Video proxying through Supabase or Next.js.
-- Video transcoding.
+- Video transcoding inside Supabase or Next.js. The approved external Torrent
+  Gateway may remux/transcode outside the application control plane.
 - DRM bypass.
 - Cookie/referrer protection bypass.
 - Scraping protected playback URLs.
-- Torrent functionality.
+- Torrent search, indexers, or browser Torrent clients. Owner-supplied Magnet
+  URIs and private `.torrent` metadata are now approved through Webtor Self-Hosted.
 - Native mobile applications.
 - Smart-TV applications.
 - Admin dashboards unrelated to the watch-room MVP.
 
 If a proposed table, package, RPC, service, background job, or infrastructure component exists only to support one of these excluded features, it does not belong in the current implementation.
+
+Approved Torrent exception: one selected torrent video file maps to one normal
+Tonight TV media item. Supabase stores durable source identity and private small
+`.torrent` recovery metadata only. Runtime HTTP/HLS URLs are derived, sidecar
+subtitles reuse the existing subtitle pipeline, and admin/Postgres remain the
+sole shared playback authority.
 
 ---
 
@@ -1428,14 +1436,18 @@ Unexpected disconnects are handled by Presence semantics.
 
 Supabase stores only metadata required to identify the source.
 
-MVP source types:
+Implemented source types:
 
 - MP4/direct browser-playable file.
 - HLS `.m3u8`.
+- YouTube identity resolved by the existing YouTube adapter.
+- Torrent identity (`infoHash` plus one selected file) resolved at runtime by
+  Webtor Self-Hosted into browser-playable HTTP/HLS.
 
 Preferred MP4 encoding for browser compatibility remains H.264 video + AAC audio where the source provides it.
 
 Supabase must not attempt to make an incompatible media host compatible.
+Torrent remux/transcode and cache state belong only to the external gateway.
 
 Failures can still happen because of:
 

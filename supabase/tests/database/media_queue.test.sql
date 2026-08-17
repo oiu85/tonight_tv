@@ -18,8 +18,8 @@ exception
 end;
 $$;
 
-select has_function('public', 'add_media_item', array['uuid', 'text', 'text', 'media_source_type'], 'add_media_item exists');
-select has_function('public', 'edit_media_item', array['uuid', 'uuid', 'text', 'text', 'media_source_type'], 'edit_media_item exists');
+select has_function('public', 'add_media_item', array['uuid', 'text', 'text', 'media_source_type', 'text', 'uuid', 'text', 'torrent_input_kind', 'text', 'text', 'text', 'integer', 'text', 'text', 'bigint'], 'add_media_item exists');
+select has_function('public', 'edit_media_item', array['uuid', 'uuid', 'text', 'text', 'media_source_type', 'text', 'text', 'torrent_input_kind', 'text', 'text', 'text', 'integer', 'text', 'text', 'bigint'], 'edit_media_item exists');
 select has_function('public', 'remove_media_item', array['uuid', 'uuid'], 'remove_media_item exists');
 select has_function('public', 'reorder_media_items', array['uuid', 'uuid[]'], 'reorder_media_items exists');
 
@@ -29,8 +29,8 @@ select is(
     from pg_proc
     where oid in (
       'private.lock_owned_room(uuid)'::regprocedure,
-      'public.add_media_item(uuid,text,text,public.media_source_type)'::regprocedure,
-      'public.edit_media_item(uuid,uuid,text,text,public.media_source_type)'::regprocedure,
+      'public.add_media_item(uuid,text,text,public.media_source_type,text,uuid,text,public.torrent_input_kind,text,text,text,integer,text,text,bigint)'::regprocedure,
+      'public.edit_media_item(uuid,uuid,text,text,public.media_source_type,text,text,public.torrent_input_kind,text,text,text,integer,text,text,bigint)'::regprocedure,
       'public.remove_media_item(uuid,uuid)'::regprocedure,
       'public.reorder_media_items(uuid,uuid[])'::regprocedure
     )
@@ -45,8 +45,8 @@ select is(
     select count(*)
     from pg_proc
     where oid in (
-      'public.add_media_item(uuid,text,text,public.media_source_type)'::regprocedure,
-      'public.edit_media_item(uuid,uuid,text,text,public.media_source_type)'::regprocedure,
+      'public.add_media_item(uuid,text,text,public.media_source_type,text,uuid,text,public.torrent_input_kind,text,text,text,integer,text,text,bigint)'::regprocedure,
+      'public.edit_media_item(uuid,uuid,text,text,public.media_source_type,text,text,public.torrent_input_kind,text,text,text,integer,text,text,bigint)'::regprocedure,
       'public.remove_media_item(uuid,uuid)'::regprocedure,
       'public.reorder_media_items(uuid,uuid[])'::regprocedure
     )
@@ -61,8 +61,8 @@ select is(
     select count(*)
     from pg_proc as p
     where p.oid in (
-      'public.add_media_item(uuid,text,text,public.media_source_type)'::regprocedure,
-      'public.edit_media_item(uuid,uuid,text,text,public.media_source_type)'::regprocedure,
+      'public.add_media_item(uuid,text,text,public.media_source_type,text,uuid,text,public.torrent_input_kind,text,text,text,integer,text,text,bigint)'::regprocedure,
+      'public.edit_media_item(uuid,uuid,text,text,public.media_source_type,text,text,public.torrent_input_kind,text,text,text,integer,text,text,bigint)'::regprocedure,
       'public.remove_media_item(uuid,uuid)'::regprocedure,
       'public.reorder_media_items(uuid,uuid[])'::regprocedure
     )
@@ -77,8 +77,8 @@ select is(
     select count(*)
     from pg_proc as p
     where p.oid in (
-      'public.add_media_item(uuid,text,text,public.media_source_type)'::regprocedure,
-      'public.edit_media_item(uuid,uuid,text,text,public.media_source_type)'::regprocedure,
+      'public.add_media_item(uuid,text,text,public.media_source_type,text,uuid,text,public.torrent_input_kind,text,text,text,integer,text,text,bigint)'::regprocedure,
+      'public.edit_media_item(uuid,uuid,text,text,public.media_source_type,text,text,public.torrent_input_kind,text,text,text,integer,text,text,bigint)'::regprocedure,
       'public.remove_media_item(uuid,uuid)'::regprocedure,
       'public.reorder_media_items(uuid,uuid[])'::regprocedure
     )

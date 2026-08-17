@@ -20,7 +20,7 @@ import {
   VolumeX,
   Wifi,
 } from "lucide-react";
-import { type RefObject, useState, type CSSProperties } from "react";
+import { type RefObject, useEffect, useRef, useState, type CSSProperties } from "react";
 
 import type { MediaRuntimeError } from "@/lib/media/media-source";
 import { posterForTitle } from "@/lib/room/posters";
@@ -38,7 +38,7 @@ export function formatPlaybackTime(seconds: number | null | undefined): string {
   const remaining = whole % 60;
   return hours > 0
     ? `${hours}:${String(minutes).padStart(2, "0")}:${String(remaining).padStart(2, "0")}`
-    : `${minutes}:${String(remaining).padStart(2, "0")}`;
+    : `${String(minutes).padStart(2, "0")}:${String(remaining).padStart(2, "0")}`;
 }
 
 function mediaErrorCopy(error: MediaRuntimeError): { title: string; body: string } {
@@ -104,6 +104,10 @@ function syncStatusCopy(
       return { label: `${Math.round(behindSeconds)}s behind live`, tone: "warning", detail: "Use GO LIVE to catch up" };
     case "synchronizing":
       return { label: "Catching up", tone: "warning", detail: "Catching up to live…" };
+    case "aligning":
+    case "seeking":
+    case "catching_up":
+      return { label: "Catching up", tone: "warning", detail: "Catching up to live…" };
     case "buffering":
       return { label: "Buffering", tone: "warning", detail: "Room is still live" };
     case "starting":
@@ -131,27 +135,25 @@ function syncStatusCopy(
  * shared seek timeline inside `AdminControls`.
  */
 export function LocalVideoTransport({
-  playing,
   currentTime,
   duration,
-  onPlayPause,
   onMuteToggle,
   muted,
   onCaptionsToggle,
   captionsActive,
+  captionsAvailable,
   onPipToggle,
   onFullscreenToggle,
   pipAvailable,
   fullscreenAvailable,
 }: {
-  playing: boolean;
   currentTime: number;
   duration: number | null;
-  onPlayPause: () => void;
   onMuteToggle: () => void;
   muted: boolean;
   onCaptionsToggle: () => void;
   captionsActive: boolean;
+  captionsAvailable: boolean;
   onPipToggle: () => void;
   onFullscreenToggle: () => void;
   pipAvailable: boolean;
@@ -162,10 +164,6 @@ export function LocalVideoTransport({
       className="tt-video-transport"
       onClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => {
-        if (event.key === " " || event.key === "k") {
-          event.preventDefault();
-          onPlayPause();
-        }
         if (event.key === "m") {
           event.preventDefault();
           onMuteToggle();
@@ -178,15 +176,6 @@ export function LocalVideoTransport({
       role="toolbar"
       aria-label="Local video transport"
     >
-      <IconButton
-        variant="ghost"
-        size="sm"
-        className="tt-transport-button"
-        label={playing ? "Pause" : "Play"}
-        onClick={onPlayPause}
-      >
-        {playing ? <Pause size={16} aria-hidden /> : <Play size={16} aria-hidden />}
-      </IconButton>
       <span className="tt-transport-time">
         {formatPlaybackTime(currentTime)} / {duration !== null ? formatPlaybackTime(duration) : "--:--"}
       </span>
@@ -205,6 +194,7 @@ export function LocalVideoTransport({
         className="tt-transport-button"
         label={captionsActive ? "Hide captions" : "Show captions"}
         onClick={onCaptionsToggle}
+        disabled={!captionsAvailable}
       >
         <Captions size={16} aria-hidden />
       </IconButton>
@@ -233,65 +223,81 @@ export function LocalVideoTransport({
 }
 
 export function VideoStage({
+  stageRef,
   videoRef,
+  youtubeMountRef,
   snapshot,
   status,
   mediaError,
   reason,
-  ownerPlaying,
   currentTime,
   duration,
   onStartWatching,
   onRetry,
   onAddMedia,
   onReconnect,
-  onPlayPause,
   onMuteToggle,
   muted,
   onCaptionsToggle,
   captionsActive,
+  captionsAvailable,
   onPipToggle,
   onFullscreenToggle,
   pipAvailable,
   fullscreenAvailable,
 }: {
+  stageRef: RefObject<HTMLElement | null>;
   videoRef: RefObject<HTMLVideoElement | null>;
+  youtubeMountRef: RefObject<HTMLDivElement | null>;
   snapshot: RoomSnapshot;
   status: RoomSyncStatus;
   mediaError: MediaRuntimeError | null;
   reason: string | null;
-  ownerPlaying: boolean;
   currentTime: number;
   duration: number | null;
   onStartWatching: () => void;
   onRetry: () => void;
   onAddMedia?: () => void;
   onReconnect: () => void;
-  onPlayPause: () => void;
   onMuteToggle: () => void;
   muted: boolean;
   onCaptionsToggle: () => void;
   captionsActive: boolean;
+  captionsAvailable: boolean;
   onPipToggle: () => void;
   onFullscreenToggle: () => void;
   pipAvailable: boolean;
   fullscreenAvailable: boolean;
 }) {
   const owner = snapshot.caller.is_owner;
+  const youtubeActive = snapshot.current_media?.source_type === "youtube";
   const playback = snapshot.playback;
   const empty = playback.status === "idle" || !snapshot.current_media;
   const blocked = status === "playback_blocked" || mediaError?.category === "autoplay_permission_blocked";
+  const showReconnect =
+    !empty &&
+    status === "synchronizing" &&
+    (reason === "visibility_resume" || reason === "realtime_reconnected");
+  const showLoading =
+    !empty &&
+    !showReconnect &&
+    (status === "starting" ||
+      status === "aligning" ||
+      status === "seeking" ||
+      status === "synchronizing");
+  const showCatchingUp = status === "catching_up" && !mediaError;
   const showBuffering = status === "buffering" && !mediaError;
-  const showLoading = (status === "starting" || status === "synchronizing") && !empty;
-  const showReconnect = !empty && (status === "synchronizing" && reason === "visibility_resume");
   const ended = playback.status === "ended";
-  const fatalMediaError = mediaError && !blocked;
+  const paused = playback.status === "paused";
+  const fatalMediaError =
+    mediaError !== null && mediaError.fatal && !blocked ? mediaError : null;
   const showTransport = !empty && !blocked && !ended && !fatalMediaError;
   const heroUrl = posterForTitle(snapshot.current_media?.title).hero;
   const heroStyle = { ["--tt-hero-url" as string]: `url(${heroUrl})` } as CSSProperties;
 
   return (
     <section
+      ref={stageRef}
       className="tt-video-stage"
       aria-label="Tonight TV video player"
       aria-describedby="player-status"
@@ -299,9 +305,15 @@ export function VideoStage({
       <video
         ref={videoRef}
         playsInline
-        preload="metadata"
+        preload="auto"
         aria-label={snapshot.current_media?.title ?? "Room video"}
-        onClick={onPlayPause}
+        hidden={youtubeActive}
+      />
+      <div
+        ref={youtubeMountRef}
+        className="tt-youtube-mount"
+        hidden={!youtubeActive}
+        aria-label={youtubeActive ? snapshot.current_media?.title : undefined}
       />
       <span className="tt-video-label" aria-hidden="true">
         <span className="tt-video-label-dot" />
@@ -318,7 +330,7 @@ export function VideoStage({
             <h2>{owner ? "Nothing is playing yet." : "Waiting for the room owner to start something…"}</h2>
             {owner ? (
               <>
-                <p>Add a direct MP4 or HLS source to start the room.</p>
+                <p>Add a direct MP4/HLS source or a YouTube Video ID to start the room.</p>
                 {onAddMedia ? (
                   <div className="tt-player-overlay-actions">
                     <Button variant="primary" onClick={onAddMedia}>
@@ -341,7 +353,13 @@ export function VideoStage({
               aria-hidden
               style={{ color: "var(--tt-accent)", animation: "tt-spin 1s linear infinite" }}
             />
-            <h2>{status === "starting" ? "Loading media…" : "Joining live…"}</h2>
+            <h2>
+              {status === "starting"
+                ? "Loading media…"
+                : status === "seeking"
+                  ? "Seeking…"
+                  : "Joining live…"}
+            </h2>
           </div>
         </div>
       ) : null}
@@ -373,6 +391,15 @@ export function VideoStage({
         </div>
       ) : null}
 
+      {!empty && showCatchingUp ? (
+        <div className="tt-player-overlay" role="status">
+          <div className="tt-player-overlay-inner">
+            <RadioTower size={30} aria-hidden style={{ color: "var(--tt-accent)" }} />
+            <h2>Catching up to live…</h2>
+          </div>
+        </div>
+      ) : null}
+
       {!empty && blocked ? (
         <div className="tt-player-overlay">
           <div className="tt-player-overlay-inner">
@@ -393,8 +420,8 @@ export function VideoStage({
         <div className="tt-player-overlay" role="alert">
           <div className="tt-player-overlay-inner">
             <AlertTriangle size={32} aria-hidden style={{ color: "var(--tt-danger)" }} />
-            <h2>{mediaErrorCopy(mediaError).title}</h2>
-            <p>{mediaErrorCopy(mediaError).body}</p>
+            <h2>{mediaErrorCopy(fatalMediaError).title}</h2>
+            <p>{mediaErrorCopy(fatalMediaError).body}</p>
             <p className="tt-muted" style={{ fontSize: 12 }}>
               {owner
                 ? "Replace the source if retrying does not help."
@@ -425,16 +452,29 @@ export function VideoStage({
         </div>
       ) : null}
 
+      {!empty &&
+      paused &&
+      !blocked &&
+      !fatalMediaError &&
+      !showLoading &&
+      !showReconnect ? (
+        <div className="tt-player-overlay" role="status">
+          <div className="tt-player-overlay-inner">
+            <Pause size={30} aria-hidden style={{ color: "var(--tt-warning)" }} />
+            <h2>Paused by admin</h2>
+          </div>
+        </div>
+      ) : null}
+
       {showTransport ? (
         <LocalVideoTransport
-          playing={ownerPlaying}
           currentTime={currentTime}
           duration={duration}
-          onPlayPause={onPlayPause}
           onMuteToggle={onMuteToggle}
           muted={muted}
           onCaptionsToggle={onCaptionsToggle}
           captionsActive={captionsActive}
+          captionsAvailable={captionsAvailable}
           onPipToggle={onPipToggle}
           onFullscreenToggle={onFullscreenToggle}
           pipAvailable={pipAvailable}
@@ -523,6 +563,7 @@ type LocalProps = {
   muted: boolean;
   volume: number;
   subtitles: RoomSnapshot["subtitles"];
+  subtitlesAvailable: boolean;
   selectedSubtitleId: string | null;
   onMutedChange: () => void;
   onVolumeChange: (volume: number) => void;
@@ -561,6 +602,7 @@ function LocalControls(props: LocalProps) {
           style={{ minHeight: 30, width: 120, padding: "4px 8px", fontSize: 13, background: "transparent", border: "none", color: "var(--tt-text-primary)" }}
           value={props.selectedSubtitleId ?? ""}
           onChange={(event) => props.onSubtitleChange(event.target.value || null)}
+          disabled={!props.subtitlesAvailable}
         >
           <option value="">Off</option>
           {props.subtitles.map((track) => (
@@ -628,24 +670,68 @@ export function AdminControls(
     playbackStatus: RoomSnapshot["playback"]["status"];
     currentTime: number;
     duration: number | null;
-    pending: boolean;
+    pending: "play_pause" | "restart" | "next" | "seek" | "select" | null;
+    playbackVersion: number;
     onPlayPause: () => void;
     onRestart: () => void;
     onNext: () => void;
-    onSeek: (seconds: number) => void;
+    onSeek: (seconds: number, expectedVersion: number) => void;
+    onScrubConflict: () => void;
     onAddMedia: () => void;
     onManageSubtitles: () => void;
   },
 ) {
   const [draft, setDraft] = useState<number | null>(null);
-  const timelineValue = draft ?? props.currentTime;
-  const max = props.duration && props.duration > 0 ? props.duration : Math.max(props.currentTime + 1, 1);
+  const scrubVersionRef = useRef<number | null>(null);
+  const playbackVersion = props.playbackVersion;
+  const onScrubConflict = props.onScrubConflict;
+  const finiteDuration =
+    props.duration !== null &&
+    Number.isFinite(props.duration) &&
+    props.duration > 0
+      ? props.duration
+      : null;
+  const max = finiteDuration ?? 1;
+  const canonicalTime = Math.max(props.currentTime, 0);
+  const canonicalValue =
+    finiteDuration === null ? 0 : Math.min(canonicalTime, finiteDuration);
+  const timelineDisplayValue = draft ?? canonicalTime;
+  const sliderValue =
+    finiteDuration === null
+      ? 0
+      : Math.min(Math.max(timelineDisplayValue, 0), finiteDuration);
   const idle = props.playbackStatus === "idle";
   const ended = props.playbackStatus === "ended";
+  const sharedCommandPending = props.pending !== null;
+  const seekDisabled = sharedCommandPending || finiteDuration === null;
+
+  useEffect(() => {
+    if (
+      scrubVersionRef.current !== null &&
+      scrubVersionRef.current !== playbackVersion
+    ) {
+      scrubVersionRef.current = null;
+      setDraft(null);
+      onScrubConflict();
+    }
+  }, [playbackVersion, onScrubConflict]);
+
+  function updateSeekPreview(value: number) {
+    scrubVersionRef.current ??= playbackVersion;
+    setDraft(Math.min(Math.max(value, 0), max));
+  }
 
   function commitSeek() {
-    if (draft === null) return;
-    props.onSeek(draft);
+    const scrubVersion = scrubVersionRef.current;
+    if (draft === null || scrubVersion === null || seekDisabled) return;
+    const target = Math.min(Math.max(draft, 0), max);
+    scrubVersionRef.current = null;
+    setDraft(null);
+    props.onSeek(target, scrubVersion);
+  }
+
+  function cancelSeek() {
+    scrubVersionRef.current = null;
     setDraft(null);
   }
 
@@ -671,7 +757,7 @@ export function AdminControls(
           type="button"
           className="tt-control-large-button"
           onClick={props.onRestart}
-          disabled={props.pending || idle}
+          disabled={sharedCommandPending || idle}
           aria-label="Restart program"
         >
           <RotateCcw size={18} aria-hidden />
@@ -681,7 +767,7 @@ export function AdminControls(
           type="button"
           className={`tt-control-large-button ${playing ? "tt-control-primary" : ""}`}
           onClick={props.onPlayPause}
-          disabled={props.pending || idle || ended}
+          disabled={sharedCommandPending || idle || ended}
           aria-label={playing ? "Pause for everyone" : "Play for everyone"}
           aria-pressed={playing}
         >
@@ -692,7 +778,7 @@ export function AdminControls(
           type="button"
           className="tt-control-large-button"
           onClick={props.onNext}
-          disabled={props.pending}
+          disabled={sharedCommandPending}
           aria-label="Play next program"
         >
           <SkipForward size={18} aria-hidden />
@@ -711,6 +797,7 @@ export function AdminControls(
           type="button"
           className="tt-control-large-button"
           onClick={props.onManageSubtitles}
+          disabled={!props.subtitlesAvailable}
           aria-label="Manage subtitles"
         >
           <Captions size={18} aria-hidden />
@@ -720,7 +807,7 @@ export function AdminControls(
       {!idle ? (
         <div className="tt-timeline">
           <time className="tt-num" aria-label="Current position">
-            {formatPlaybackTime(timelineValue)}
+            {formatPlaybackTime(timelineDisplayValue)}
           </time>
           <input
             className="tt-range"
@@ -729,11 +816,21 @@ export function AdminControls(
             min={0}
             max={max}
             step={0.1}
-            value={Math.min(timelineValue, max)}
-            onChange={(event) => setDraft(Number(event.target.value))}
+            value={sliderValue}
+            disabled={seekDisabled}
+            aria-valuetext={
+              finiteDuration === null
+                ? "Duration unavailable"
+                : `${formatPlaybackTime(sliderValue)} of ${formatPlaybackTime(finiteDuration)}`
+            }
+            onPointerDown={() => {
+              scrubVersionRef.current = playbackVersion;
+              setDraft(canonicalValue);
+            }}
+            onChange={(event) => updateSeekPreview(Number(event.target.value))}
             onPointerUp={commitSeek}
-            onPointerCancel={() => setDraft(null)}
-            onBlur={() => setDraft(null)}
+            onPointerCancel={cancelSeek}
+            onBlur={cancelSeek}
             onKeyUp={(event) => {
               if (["ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"].includes(event.key)) {
                 commitSeek();
@@ -747,7 +844,7 @@ export function AdminControls(
       ) : null}
       {props.status === "buffering" ? <ProgressMeter value={1} max={1} tone="warning" label="Buffering" /> : null}
       <p className="tt-secondary" style={{ fontSize: 12, margin: 0 }}>
-        These are local controls and will not affect others.
+        Volume, subtitles, Picture in Picture, and fullscreen are local to this device.
       </p>
       <LocalControls {...props} />
     </section>

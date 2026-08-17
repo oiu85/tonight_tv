@@ -20,6 +20,17 @@ function item(id: string, queuePosition: number): MediaItem {
     title: `Media ${queuePosition}`,
     source_url: `https://media.example.test/${queuePosition}.mp4`,
     source_type: "mp4",
+    source_revision: 1,
+    youtube_video_id: null,
+    torrent_info_hash: null,
+    torrent_input_kind: null,
+    torrent_magnet_uri: null,
+    torrent_metadata_path: null,
+    torrent_name: null,
+    torrent_file_index: null,
+    torrent_file_path: null,
+    torrent_file_name: null,
+    torrent_file_size: null,
     queue_position: queuePosition,
     created_by: "44444444-4444-4444-8444-444444444444",
     created_at: timestamp,
@@ -29,12 +40,41 @@ function item(id: string, queuePosition: number): MediaItem {
 
 function createClientMock(...responses: unknown[]) {
   const rpc = vi.fn();
+  const upload = vi.fn(async () => ({ data: {}, error: null }));
+  const remove = vi.fn(async () => ({ data: [], error: null }));
   for (const response of responses) {
     rpc.mockResolvedValueOnce(response);
   }
   return {
-    client: { rpc } as unknown as SupabaseClient<Database>,
+    client: {
+      rpc,
+      from: vi.fn(() => ({
+        select: vi.fn(() => ({
+          eq: vi.fn(() => ({
+            eq: vi.fn(() => ({
+              maybeSingle: vi.fn(async () => ({
+                data: {
+                  torrent_info_hash: null,
+                  torrent_input_kind: null,
+                  torrent_magnet_uri: null,
+                  torrent_metadata_path: null,
+                },
+                error: null,
+              })),
+            })),
+          })),
+        })),
+      })),
+      storage: {
+        from: vi.fn(() => ({
+          upload,
+          remove,
+        })),
+      },
+    } as unknown as SupabaseClient<Database>,
     rpc,
+    upload,
+    remove,
   };
 }
 
@@ -155,5 +195,57 @@ describe("media queue service", () => {
     await expect(service.playNext(roomId, 7)).resolves.toEqual(state);
     expect(playNext).toHaveBeenCalledWith(roomId, 7);
     expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("uploads private .torrent metadata before creating the durable source", async () => {
+    const torrentItem: MediaItem = {
+      ...item(mediaA, 0),
+      source_url: null,
+      source_type: "torrent",
+      torrent_info_hash: "0123456789abcdef0123456789abcdef01234567",
+      torrent_input_kind: "torrent_file",
+      torrent_metadata_path: `rooms/${roomId}/media/${mediaA}/0123456789abcdef0123456789abcdef01234567.torrent`,
+      torrent_name: "Movie",
+      torrent_file_index: 4,
+      torrent_file_path: "Movie/Movie.mkv",
+      torrent_file_name: "Movie.mkv",
+      torrent_file_size: 1_000,
+    };
+    const { client, rpc, upload } = createClientMock({ data: [torrentItem], error: null });
+    const randomUuid = vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValue(mediaA);
+    const service = createMediaQueueService(client);
+    const metadata = new File([new Uint8Array([1, 2, 3])], "movie.torrent", {
+      type: "application/x-bittorrent",
+    });
+
+    await expect(service.addMedia(roomId, {
+      title: "Movie",
+      sourceType: "torrent",
+      torrent: {
+        infoHash: torrentItem.torrent_info_hash!,
+        inputKind: "torrent_file",
+        metadataFile: metadata,
+        torrentName: "Movie",
+        fileIndex: 4,
+        filePath: "Movie/Movie.mkv",
+        fileName: "Movie.mkv",
+        fileSize: 1_000,
+      },
+    })).resolves.toEqual(torrentItem);
+
+    expect(upload).toHaveBeenCalledWith(
+      torrentItem.torrent_metadata_path,
+      metadata,
+      { contentType: "application/x-bittorrent", upsert: false },
+    );
+    expect(rpc).toHaveBeenCalledWith("add_media_item", expect.objectContaining({
+      p_media_id: mediaA,
+      p_source_type: "torrent",
+      p_source_url: undefined,
+      p_torrent_info_hash: torrentItem.torrent_info_hash,
+      p_torrent_metadata_path: torrentItem.torrent_metadata_path,
+      p_torrent_file_index: 4,
+    }));
+    randomUuid.mockRestore();
   });
 });

@@ -14,10 +14,57 @@ import type { Database } from "../supabase/database.types";
 export type MediaSourceType = Database["public"]["Enums"]["media_source_type"];
 export type MediaItem = Readonly<Database["public"]["Tables"]["media_items"]["Row"]>;
 
-export type MediaItemInput = Readonly<{
+export type MediaItemInput =
+  | Readonly<{
+      title: string;
+      sourceUrl: string;
+      sourceType: Exclude<MediaSourceType, "youtube" | "torrent">;
+      youtubeVideoId?: never;
+      torrent?: never;
+    }>
+  | Readonly<{
+      title: string;
+      sourceUrl?: null;
+      sourceType: "youtube";
+      youtubeVideoId: string;
+      torrent?: never;
+    }>
+  | Readonly<{
+      title: string;
+      sourceUrl?: null;
+      sourceType: "torrent";
+      youtubeVideoId?: never;
+      torrent: Readonly<{
+        infoHash: string;
+        inputKind: "magnet" | "torrent_file";
+        magnetUri?: string | null;
+        metadataFile?: File | null;
+        torrentName?: string | null;
+        fileIndex: number;
+        filePath: string;
+        fileName: string;
+        fileSize: number;
+      }>;
+    }>;
+
+type NormalizedTorrentInput = Readonly<{
+  infoHash: string;
+  inputKind: "magnet" | "torrent_file";
+  magnetUri: string | null;
+  metadataFile: File | null;
+  torrentName: string | null;
+  fileIndex: number;
+  filePath: string;
+  fileName: string;
+  fileSize: number;
+}>;
+
+type NormalizedMediaItemInput = Readonly<{
   title: string;
-  sourceUrl: string;
+  sourceUrl: string | null;
   sourceType: MediaSourceType;
+  youtubeVideoId: string | null;
+  torrent: NormalizedTorrentInput | null;
 }>;
 
 export type MediaQueueErrorCode =
@@ -30,6 +77,8 @@ export type MediaQueueErrorCode =
   | "stale_version"
   | "no_next_media"
   | "invalid_response"
+  | "metadata_upload_failed"
+  | "metadata_cleanup_failed"
   | "request_failed";
 
 export class MediaQueueError extends Error {
@@ -71,7 +120,16 @@ type DatabaseError = Readonly<{ code?: string; message?: string }>;
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const SOURCE_TYPES = new Set<MediaSourceType>(["auto", "mp4", "hls"]);
+const SOURCE_TYPES = new Set<MediaSourceType>([
+  "auto",
+  "mp4",
+  "hls",
+  "youtube",
+  "torrent",
+]);
+const YOUTUBE_VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/;
+const TORRENT_METADATA_BUCKET = "torrent-metadata";
+const TORRENT_METADATA_MAX_BYTES = 2 * 1024 * 1024;
 
 function invalidInput(message: string): MediaQueueError {
   return new MediaQueueError("invalid_input", message);
@@ -83,12 +141,113 @@ function validateId(value: string, label: string): void {
   }
 }
 
-function normalizeInput(input: MediaItemInput): MediaItemInput {
+function normalizeInput(input: MediaItemInput): NormalizedMediaItemInput {
   const title = input.title.trim();
-  const sourceUrl = input.sourceUrl.trim();
   if (title.length === 0 || title.length > 200) {
     throw invalidInput("Media title must be between 1 and 200 characters.");
   }
+  if (!SOURCE_TYPES.has(input.sourceType)) {
+    throw invalidInput(
+      "Media source type must be auto, mp4, hls, youtube, or torrent.",
+    );
+  }
+
+  if (input.sourceType === "youtube") {
+    const youtubeVideoId = input.youtubeVideoId.trim();
+    if (!YOUTUBE_VIDEO_ID_PATTERN.test(youtubeVideoId)) {
+      throw invalidInput(
+        "YouTube Video ID must contain exactly 11 letters, numbers, hyphens, or underscores.",
+      );
+    }
+    return Object.freeze({
+      title,
+      sourceUrl: null,
+      sourceType: "youtube",
+      youtubeVideoId,
+      torrent: null,
+    });
+  }
+
+  if (input.sourceType === "torrent") {
+    const torrent = input.torrent;
+    const infoHash = torrent.infoHash.trim().toLowerCase();
+    const filePath = torrent.filePath.trim();
+    const fileName = torrent.fileName.trim();
+    if (!/^[a-f0-9]{40}$/.test(infoHash)) {
+      throw invalidInput("Torrent info hash is invalid.");
+    }
+    if (
+      !Number.isInteger(torrent.fileIndex) ||
+      torrent.fileIndex < 0 ||
+      !Number.isFinite(torrent.fileSize) ||
+      torrent.fileSize < 0 ||
+      filePath.length < 1 ||
+      filePath.length > 1_024 ||
+      /(^|\/)\.\.(\/|$)/.test(filePath) ||
+      fileName.length < 1 ||
+      fileName.length > 255
+    ) {
+      throw invalidInput("Select a valid playable Torrent file.");
+    }
+
+    if (torrent.inputKind === "magnet") {
+      const magnetUri = torrent.magnetUri?.trim() || null;
+      if (
+        magnetUri !== null &&
+        (!magnetUri.startsWith("magnet:?") || magnetUri.length > 16_384)
+      ) {
+        throw invalidInput("Magnet URI is invalid.");
+      }
+      return Object.freeze({
+        title,
+        sourceUrl: null,
+        sourceType: "torrent",
+        youtubeVideoId: null,
+        torrent: Object.freeze({
+          infoHash,
+          inputKind: "magnet",
+          magnetUri,
+          metadataFile: null,
+          torrentName: torrent.torrentName?.trim() || null,
+          fileIndex: torrent.fileIndex,
+          filePath,
+          fileName,
+          fileSize: torrent.fileSize,
+        }),
+      });
+    }
+
+    const metadataFile = torrent.metadataFile;
+    if (
+      metadataFile !== null &&
+      (!(metadataFile instanceof File) ||
+        metadataFile.size === 0 ||
+        metadataFile.size > TORRENT_METADATA_MAX_BYTES)
+    ) {
+      throw invalidInput(
+        "Choose a valid .torrent metadata file no larger than 2 MiB.",
+      );
+    }
+    return Object.freeze({
+      title,
+      sourceUrl: null,
+      sourceType: "torrent",
+      youtubeVideoId: null,
+      torrent: Object.freeze({
+        infoHash,
+        inputKind: "torrent_file",
+        magnetUri: null,
+        metadataFile,
+        torrentName: torrent.torrentName?.trim() || null,
+        fileIndex: torrent.fileIndex,
+        filePath,
+        fileName,
+        fileSize: torrent.fileSize,
+      }),
+    });
+  }
+
+  const sourceUrl = input.sourceUrl.trim();
   if (sourceUrl.length < 8 || sourceUrl.length > 4_096 || /[\s\u0000-\u001f]/u.test(sourceUrl)) {
     throw invalidInput("Media source must be a valid HTTP or HTTPS URL.");
   }
@@ -106,11 +265,58 @@ function normalizeInput(input: MediaItemInput): MediaItemInput {
   ) {
     throw invalidInput("Media source must be a credential-free HTTP or HTTPS URL.");
   }
-  if (!SOURCE_TYPES.has(input.sourceType)) {
-    throw invalidInput("Media source type must be auto, mp4, or hls.");
-  }
+  return Object.freeze({
+    title,
+    sourceUrl,
+    sourceType: input.sourceType,
+    youtubeVideoId: null,
+    torrent: null,
+  });
+}
 
-  return Object.freeze({ title, sourceUrl, sourceType: input.sourceType });
+function torrentMetadataPath(
+  roomId: string,
+  mediaId: string,
+  infoHash: string,
+): string {
+  return `rooms/${roomId}/media/${mediaId}/${infoHash}.torrent`;
+}
+
+function mediaRpcArgs(
+  roomId: string,
+  mediaId: string,
+  normalized: NormalizedMediaItemInput,
+  metadataPath: string | null,
+) {
+  const base = {
+    p_room_id: roomId,
+    p_title: normalized.title,
+    p_source_type: normalized.sourceType,
+  };
+  if (normalized.sourceType === "youtube") {
+    return {
+      ...base,
+      p_source_url: undefined,
+      p_youtube_video_id: normalized.youtubeVideoId ?? undefined,
+    };
+  }
+  if (!normalized.torrent) {
+    return { ...base, p_source_url: normalized.sourceUrl ?? "" };
+  }
+  return {
+    ...base,
+    p_source_url: undefined,
+    p_youtube_video_id: undefined,
+    p_torrent_info_hash: normalized.torrent.infoHash,
+    p_torrent_input_kind: normalized.torrent.inputKind,
+    p_torrent_magnet_uri: normalized.torrent.magnetUri ?? undefined,
+    p_torrent_metadata_path: metadataPath ?? undefined,
+    p_torrent_name: normalized.torrent.torrentName ?? undefined,
+    p_torrent_file_index: normalized.torrent.fileIndex,
+    p_torrent_file_path: normalized.torrent.filePath,
+    p_torrent_file_name: normalized.torrent.fileName,
+    p_torrent_file_size: normalized.torrent.fileSize,
+  };
 }
 
 function mapDatabaseError(error: DatabaseError): MediaQueueError {
@@ -196,6 +402,36 @@ export function createMediaQueueService(
   playbackCommands: Pick<PlaybackCommandService, "playNext"> =
     createPlaybackCommandService(client),
 ): MediaQueueService {
+  const torrentMetadata = () => client.storage.from(TORRENT_METADATA_BUCKET);
+
+  async function uploadTorrentMetadata(
+    path: string,
+    file: File,
+  ): Promise<void> {
+    const upload = await torrentMetadata().upload(path, file, {
+      contentType: "application/x-bittorrent",
+      upsert: false,
+    });
+    if (upload.error) {
+      throw new MediaQueueError(
+        "metadata_upload_failed",
+        "Unable to upload the private Torrent metadata file.",
+        { cause: upload.error },
+      );
+    }
+  }
+
+  async function removeTorrentMetadata(path: string): Promise<void> {
+    const cleanup = await torrentMetadata().remove([path]);
+    if (cleanup.error) {
+      throw new MediaQueueError(
+        "metadata_cleanup_failed",
+        "The media changed, but its old Torrent metadata could not be cleaned up.",
+        { cause: cleanup.error },
+      );
+    }
+  }
+
   async function listQueue(roomId: string): Promise<readonly MediaItem[]> {
     validateId(roomId, "Room ID");
     const { data, error } = await client
@@ -213,12 +449,34 @@ export function createMediaQueueService(
   async function addMedia(roomId: string, input: MediaItemInput): Promise<MediaItem> {
     validateId(roomId, "Room ID");
     const normalized = normalizeInput(input);
-    const { data, error } = await client.rpc("add_media_item", {
-      p_room_id: roomId,
-      p_title: normalized.title,
-      p_source_url: normalized.sourceUrl,
-      p_source_type: normalized.sourceType,
-    });
+    const mediaId = crypto.randomUUID();
+    const metadataPath = normalized.torrent?.inputKind === "torrent_file"
+      ? torrentMetadataPath(roomId, mediaId, normalized.torrent.infoHash)
+      : null;
+    if (metadataPath) {
+      if (!normalized.torrent?.metadataFile) {
+        throw invalidInput("Choose and inspect a .torrent metadata file first.");
+      }
+      await uploadTorrentMetadata(metadataPath, normalized.torrent.metadataFile);
+    }
+    if (normalized.torrent?.inputKind === "magnet" && !normalized.torrent.magnetUri) {
+      throw invalidInput("Enter and inspect a Magnet URI first.");
+    }
+    const args = mediaRpcArgs(roomId, mediaId, normalized, metadataPath);
+    const { data, error } = await client.rpc(
+      "add_media_item",
+      normalized.torrent ? { ...args, p_media_id: mediaId } : args,
+    );
+    if (error && metadataPath) {
+      const cleanup = await torrentMetadata().remove([metadataPath]);
+      if (cleanup.error) {
+        throw new MediaQueueError(
+          "metadata_cleanup_failed",
+          "The media was not added and its uploaded Torrent metadata could not be cleaned up.",
+          { cause: error, databaseCode: error.code },
+        );
+      }
+    }
     return unwrapSingle(data, error);
   }
 
@@ -230,14 +488,56 @@ export function createMediaQueueService(
     validateId(roomId, "Room ID");
     validateId(mediaId, "Media ID");
     const normalized = normalizeInput(input);
-    const { data, error } = await client.rpc("edit_media_item", {
-      p_room_id: roomId,
-      p_media_id: mediaId,
-      p_title: normalized.title,
-      p_source_url: normalized.sourceUrl,
-      p_source_type: normalized.sourceType,
-    });
-    return unwrapSingle(data, error);
+    const existingResult = await client
+      .from("media_items")
+      .select("torrent_info_hash,torrent_input_kind,torrent_magnet_uri,torrent_metadata_path")
+      .eq("room_id", roomId)
+      .eq("id", mediaId)
+      .maybeSingle();
+    if (existingResult.error || !existingResult.data) {
+      throw mapDatabaseError(existingResult.error ?? { code: "P0002" });
+    }
+    const existing = existingResult.data;
+    const previousPath = existing.torrent_metadata_path;
+    const effectiveNormalized = normalized.torrent?.inputKind === "magnet" &&
+      !normalized.torrent.magnetUri &&
+      existing.torrent_input_kind === "magnet" &&
+      existing.torrent_info_hash === normalized.torrent.infoHash
+        ? Object.freeze({
+            ...normalized,
+            torrent: Object.freeze({
+              ...normalized.torrent,
+              magnetUri: existing.torrent_magnet_uri,
+            }),
+          })
+        : normalized;
+    const metadataPath = normalized.torrent?.inputKind === "torrent_file"
+      ? torrentMetadataPath(roomId, mediaId, normalized.torrent.infoHash)
+      : null;
+    const shouldUpload = Boolean(
+      metadataPath && normalized.torrent?.metadataFile && metadataPath !== previousPath,
+    );
+    if (metadataPath && !normalized.torrent?.metadataFile && metadataPath !== previousPath) {
+      throw invalidInput("Choose and inspect a .torrent metadata file first.");
+    }
+    if (shouldUpload && metadataPath && normalized.torrent?.metadataFile) {
+      await uploadTorrentMetadata(metadataPath, normalized.torrent.metadataFile);
+    }
+    const { data, error } = await client.rpc(
+      "edit_media_item",
+      {
+        ...mediaRpcArgs(roomId, mediaId, effectiveNormalized, metadataPath),
+        p_media_id: mediaId,
+      },
+    );
+    if (error && shouldUpload && metadataPath) {
+      await torrentMetadata().remove([metadataPath]);
+    }
+    const item = unwrapSingle(data, error);
+    if (previousPath && previousPath !== item.torrent_metadata_path) {
+      await removeTorrentMetadata(previousPath);
+    }
+    return item;
   }
 
   async function removeMedia(roomId: string, mediaId: string): Promise<MediaItem> {
@@ -247,7 +547,11 @@ export function createMediaQueueService(
       p_room_id: roomId,
       p_media_id: mediaId,
     });
-    return unwrapSingle(data, error);
+    const removed = unwrapSingle(data, error);
+    if (removed.torrent_metadata_path) {
+      await removeTorrentMetadata(removed.torrent_metadata_path);
+    }
+    return removed;
   }
 
   async function reorderMedia(

@@ -12,6 +12,7 @@ import type {
   RoomChannelService,
 } from "../../src/lib/realtime/room-channel-service";
 import type { RoomSnapshot } from "../../src/lib/rooms/room-service";
+import { MediaRuntimeError } from "../../src/lib/media/media-source";
 import type { ClockCalibrator } from "../../src/lib/sync/clock-calibrator";
 import { createRoomSyncCoordinator } from "../../src/lib/sync/room-sync-coordinator";
 import type { Database } from "../../src/lib/supabase/database.types";
@@ -63,6 +64,14 @@ function makeSnapshot(
             title: "Movie",
             source_url: "https://media.example/movie.mp4",
             source_type: "mp4",
+            source_revision: 1,
+            youtube_video_id: null,
+            torrent_info_hash: null,
+            torrent_input_kind: null,
+            torrent_file_index: null,
+            torrent_file_path: null,
+            torrent_file_name: null,
+            torrent_file_size: null,
             queue_position: 0,
             created_at: timestamp,
             updated_at: timestamp,
@@ -81,6 +90,7 @@ class FakePlayer implements PlayerSyncAdapter {
   paused = true;
   ready = true;
   seekable = true;
+  seekBlocker: Promise<void> | null = null;
   readonly loads: (SyncMedia | null)[] = [];
   readonly seeks: number[] = [];
   readonly play = vi.fn(async () => {
@@ -126,6 +136,7 @@ class FakePlayer implements PlayerSyncAdapter {
 
   async seek(positionSec: number) {
     this.seeks.push(positionSec);
+    if (this.seekBlocker) await this.seekBlocker;
     this.currentTime = positionSec;
   }
 
@@ -135,6 +146,18 @@ class FakePlayer implements PlayerSyncAdapter {
 
   setPlaybackRate(rate: number) {
     this.playbackRate = rate;
+  }
+
+  getAvailablePlaybackRates() {
+    return [1] as const;
+  }
+
+  getCapabilities() {
+    return {
+      supportsFinePlaybackRateCorrection: true,
+      supportsPictureInPicture: true,
+      supportsNativeTextTracks: true,
+    } as const;
   }
 }
 
@@ -270,6 +293,90 @@ describe("room synchronization lifecycle", () => {
     });
   });
 
+  it("retains one canonical alignment until the initial target becomes seekable", async () => {
+    const harness = createHarness();
+    harness.player.seekable = false;
+
+    await harness.coordinator.start(startOptions);
+
+    expect(harness.player.seeks).toEqual([]);
+    expect(harness.player.play).not.toHaveBeenCalled();
+    expect(harness.coordinator.getState().status).toBe("aligning");
+
+    harness.player.seekable = true;
+    await harness.coordinator.tick();
+
+    expect(harness.player.seeks).toEqual([10]);
+    expect(harness.player.play).toHaveBeenCalledOnce();
+    expect(harness.coordinator.getState().status).toBe("live");
+  });
+
+  it("applies an accepted seek result immediately without fetching another snapshot", async () => {
+    const harness = createHarness();
+    await harness.coordinator.start(startOptions);
+    const baselineFetches = harness.fetchSnapshot.mock.calls.length;
+
+    await harness.coordinator.applyCommandResult({
+      ...makeSnapshot().playback,
+      anchor_position_sec: 73,
+      anchor_server_time: new Date(serverNowMs).toISOString(),
+      state_version: 2,
+    });
+
+    expect(harness.fetchSnapshot).toHaveBeenCalledTimes(baselineFetches);
+    expect(harness.player.currentTime).toBe(73);
+    expect(harness.player.paused).toBe(false);
+    expect(harness.coordinator.getState().canonicalPlayback?.state_version).toBe(2);
+  });
+
+  it("keeps an accepted paused seek paused at the new position", async () => {
+    const harness = createHarness(
+      makeSnapshot({ status: "paused", anchor_position_sec: 20 }),
+    );
+    await harness.coordinator.start(startOptions);
+    harness.player.play.mockClear();
+
+    await harness.coordinator.applyCommandResult({
+      ...makeSnapshot().playback,
+      status: "paused",
+      anchor_position_sec: 61,
+      state_version: 2,
+    });
+
+    expect(harness.player.currentTime).toBe(61);
+    expect(harness.player.paused).toBe(true);
+    expect(harness.player.play).not.toHaveBeenCalled();
+    expect(harness.coordinator.getState().status).toBe("paused");
+  });
+
+  it("coalesces overlapping alignments so an obsolete seek cannot undo a newer command", async () => {
+    const harness = createHarness();
+    await harness.coordinator.start(startOptions);
+    let releaseSeek!: () => void;
+    harness.player.seekBlocker = new Promise<void>((resolve) => {
+      releaseSeek = resolve;
+    });
+
+    const first = harness.coordinator.applyCommandResult({
+      ...makeSnapshot().playback,
+      anchor_position_sec: 80,
+      state_version: 2,
+    });
+    await vi.waitFor(() => expect(harness.player.seeks).toContain(80));
+    const second = harness.coordinator.applyCommandResult({
+      ...makeSnapshot().playback,
+      anchor_position_sec: 35,
+      state_version: 3,
+    });
+
+    releaseSeek();
+    await Promise.all([first, second]);
+
+    expect(harness.player.seeks.slice(-2)).toEqual([80, 35]);
+    expect(harness.player.currentTime).toBe(35);
+    expect(harness.coordinator.getState().canonicalPlayback?.state_version).toBe(3);
+  });
+
   it("ignores stale events, applies sequential events, and reconciles a gap", async () => {
     const harness = createHarness();
     await harness.coordinator.start(startOptions);
@@ -287,6 +394,7 @@ describe("room synchronization lifecycle", () => {
       status: "paused",
       canonicalPlayback: { state_version: 2 },
     });
+    expect(harness.player.loads).toHaveLength(1);
 
     harness.setSnapshot(
       makeSnapshot({ status: "paused", state_version: 4 }),
@@ -390,6 +498,18 @@ describe("room synchronization lifecycle", () => {
     expect(harness.coordinator.getState().status).toBe("live");
   });
 
+  it("never labels a canonically paused room as buffering", async () => {
+    const harness = createHarness(
+      makeSnapshot({ status: "paused", anchor_position_sec: 10 }),
+    );
+    await harness.coordinator.start(startOptions);
+
+    await harness.coordinator.handleBufferingChange(true);
+
+    expect(harness.coordinator.getState().status).toBe("paused");
+    expect(harness.player.play).not.toHaveBeenCalled();
+  });
+
   it("reloads the same current media ID when its source metadata changes", async () => {
     const harness = createHarness();
     await harness.coordinator.start(startOptions);
@@ -414,6 +534,25 @@ describe("room synchronization lifecycle", () => {
       sourceUrl: "https://media.example/movie-v2.m3u8",
       sourceType: "hls",
     });
+  });
+
+  it("turns a fatal source failure into error and retries the same source only on explicit recovery", async () => {
+    const harness = createHarness();
+    await harness.coordinator.start(startOptions);
+
+    harness.coordinator.handleMediaError(
+      new MediaRuntimeError(
+        "hls_manifest_error",
+        "Manifest retries were exhausted.",
+      ),
+    );
+
+    expect(harness.coordinator.getState().status).toBe("error");
+    expect(harness.player.loads).toHaveLength(1);
+
+    await harness.coordinator.goLive();
+    expect(harness.player.loads).toHaveLength(2);
+    expect(harness.coordinator.getState().status).toBe("live");
   });
 
   it("GO LIVE fetches truth, refreshes a stale clock, and only operates locally", async () => {

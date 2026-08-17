@@ -1,5 +1,20 @@
 # Tonight TV
 
+## Torrent media gateway
+
+Torrent is an approved first-class media source. Tonight TV stores only the
+durable control-plane identity (info hash, input kind, and one selected file)
+in Supabase. Small uploaded `.torrent` metadata is kept in the private
+`torrent-metadata` Storage bucket for recovery; movie bytes never flow through
+Supabase or Next.js.
+
+The runtime gateway is Webtor Self-Hosted `v1.1.4`, deployed separately from
+the Next.js application. Next.js uses its private REST control plane to inspect
+and prepare sources, while browsers load token-bearing HTTP/HLS URLs directly
+from the public media origin. The existing HTML5/hls.js adapter and canonical
+Postgres synchronization timeline remain authoritative. See
+`deploy/torrent/docker-compose.yml` for the pinned stateful deployment boundary.
+
 Tonight TV is a private synchronized watch-room built with Next.js and Supabase.
 
 ## Development foundation

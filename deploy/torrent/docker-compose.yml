@@ -1,0 +1,55 @@
+services:
+  webtor:
+    image: ghcr.io/webtor-io/self-hosted:1.1.4
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${TORRENT_MEDIA_PUBLIC_BASE_URL}
+      CLEANER_FREE: ${WEBTOR_CLEANER_FREE:-35%}
+      CLEANER_KEEP_FREE: ${WEBTOR_CLEANER_KEEP_FREE:-25%}
+      DISABLE_WEBDAV: "true"
+      DISABLE_EMBED: "true"
+      DISABLE_VIDEO_TRANSCODING: ${WEBTOR_DISABLE_VIDEO_TRANSCODING:-false}
+    volumes:
+      - webtor-data:/data
+      - webtor-pgdata:/pgdata
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/ >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - torrent-control
+      - torrent-media
+
+  media-origin:
+    image: caddy:2.10.2-alpine
+    restart: unless-stopped
+    depends_on:
+      webtor:
+        condition: service_healthy
+    environment:
+      TORRENT_MEDIA_HOST: ${TORRENT_MEDIA_HOST}
+      TONIGHT_TV_APP_ORIGIN: ${TONIGHT_TV_APP_ORIGIN}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - torrent-media
+
+networks:
+  torrent-control:
+    internal: true
+  torrent-media:
+
+volumes:
+  webtor-data:
+  webtor-pgdata:
+  caddy-data:
+  caddy-config:

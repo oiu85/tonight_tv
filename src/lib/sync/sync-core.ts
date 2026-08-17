@@ -14,9 +14,21 @@ export type CanonicalPlaybackState = Readonly<{
 
 export type SyncMedia = Readonly<{
   id: string;
+  roomId?: string;
   title: string;
-  sourceUrl: string;
+  sourceUrl: string | null;
   sourceType: Database["public"]["Enums"]["media_source_type"];
+  youtubeVideoId: string | null;
+  sourceRevision?: number;
+  torrentInfoHash?: string | null;
+  torrentFileIndex?: number | null;
+  torrentFilePath?: string | null;
+}>;
+
+export type PlayerCapabilities = Readonly<{
+  supportsFinePlaybackRateCorrection: boolean;
+  supportsPictureInPicture: boolean;
+  supportsNativeTextTracks: boolean;
 }>;
 
 /**
@@ -29,6 +41,12 @@ export type PlayerSyncAdapter = Readonly<{
   waitUntilReady: () => Promise<void>;
   isReady: () => boolean;
   isSeekable: (positionSec: number) => boolean;
+  /**
+   * Resolves a canonical target to a position that this runtime can seek now.
+   * VOD returns null until the exact target is seekable. A live/DVR runtime may
+   * clamp to its current seekable window.
+   */
+  getSeekableTarget?: (positionSec: number) => number | null;
   isPaused: () => boolean;
   getCurrentTime: () => number;
   getDuration: () => number | null;
@@ -37,6 +55,8 @@ export type PlayerSyncAdapter = Readonly<{
   pause: () => void | Promise<void>;
   getPlaybackRate: () => number;
   setPlaybackRate: (rate: number) => void;
+  getAvailablePlaybackRates: () => readonly number[];
+  getCapabilities: () => PlayerCapabilities;
 }>;
 
 export const DEFAULT_DRIFT_POLICY = Object.freeze({
@@ -48,7 +68,21 @@ export const DEFAULT_DRIFT_POLICY = Object.freeze({
   normalPlaybackRate: 1,
 });
 
-export type DriftPolicy = typeof DEFAULT_DRIFT_POLICY;
+export const SEEK_ONLY_DRIFT_POLICY = Object.freeze({
+  ...DEFAULT_DRIFT_POLICY,
+  noCorrectionThresholdSec: 0.5,
+  rateCorrectionResetThresholdSec: 0.25,
+  hardSeekThresholdSec: 2,
+});
+
+export type DriftPolicy = Readonly<{
+  noCorrectionThresholdSec: number;
+  rateCorrectionResetThresholdSec: number;
+  hardSeekThresholdSec: number;
+  catchUpPlaybackRate: number;
+  slowDownPlaybackRate: number;
+  normalPlaybackRate: number;
+}>;
 
 export type CorrectionDecision =
   | Readonly<{ kind: "none" }>
@@ -129,6 +163,7 @@ export function selectCorrectionDecision(options: Readonly<{
   buffering: boolean;
   currentPlaybackRate: number;
   rateCorrectionActive: boolean;
+  supportsFinePlaybackRateCorrection?: boolean;
   policy?: DriftPolicy;
 }>): CorrectionDecision {
   const policy = options.policy ?? DEFAULT_DRIFT_POLICY;
@@ -178,6 +213,10 @@ export function selectCorrectionDecision(options: Readonly<{
           resetRate: !rateIsNormal,
         }
       : { kind: "wait", resetRate: !rateIsNormal };
+  }
+
+  if (options.supportsFinePlaybackRateCorrection === false) {
+    return rateIsNormal ? { kind: "none" } : { kind: "reset_rate" };
   }
 
   return {

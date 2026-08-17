@@ -1,6 +1,7 @@
 import type { MediaSourceType } from "./media-queue-service";
+import type { TorrentErrorCategory } from "../torrent/torrent-contracts";
 
-export type MediaRuntimeSourceKind = "direct" | "hls";
+export type MediaRuntimeSourceKind = "direct" | "hls" | "youtube";
 
 export type MediaSourceErrorCategory =
   | "network_source_unreachable"
@@ -12,6 +13,13 @@ export type MediaSourceErrorCategory =
   | "authenticated_source_unsupported"
   | "expired_url_suspected"
   | "encrypted_drm_source_unsupported"
+  | "youtube_invalid_video_id"
+  | "youtube_video_unavailable"
+  | "youtube_embed_not_allowed"
+  | "youtube_client_identity_missing"
+  | "youtube_html5_player_error"
+  | "youtube_playback_error"
+  | TorrentErrorCategory
   | "unknown_media_error";
 
 export class MediaRuntimeError extends Error {
@@ -38,9 +46,12 @@ export type HlsErrorLike = Readonly<{
 }>;
 
 export function resolveMediaRuntimeSource(
-  sourceUrl: string,
+  sourceUrl: string | null,
   sourceType: MediaSourceType,
 ): MediaRuntimeSourceKind {
+  if (sourceType === "youtube") {
+    return "youtube";
+  }
   if (sourceType === "hls") {
     return "hls";
   }
@@ -49,10 +60,46 @@ export function resolveMediaRuntimeSource(
   }
 
   try {
-    const pathname = new URL(sourceUrl).pathname.toLowerCase();
+    const pathname = new URL(sourceUrl ?? "").pathname.toLowerCase();
     return pathname.endsWith(".m3u8") ? "hls" : "direct";
   } catch {
     return "direct";
+  }
+}
+
+export function classifyYouTubeError(code: number): MediaRuntimeError {
+  switch (code) {
+    case 2:
+      return new MediaRuntimeError(
+        "youtube_invalid_video_id",
+        "The YouTube video ID is invalid.",
+      );
+    case 5:
+      return new MediaRuntimeError(
+        "youtube_html5_player_error",
+        "YouTube could not play this video in its HTML5 player.",
+      );
+    case 100:
+      return new MediaRuntimeError(
+        "youtube_video_unavailable",
+        "This YouTube video was removed, is private, or could not be found.",
+      );
+    case 101:
+    case 150:
+      return new MediaRuntimeError(
+        "youtube_embed_not_allowed",
+        "The owner of this YouTube video does not allow embedded playback.",
+      );
+    case 153:
+      return new MediaRuntimeError(
+        "youtube_client_identity_missing",
+        "YouTube rejected the embedded player because the application origin or referrer was unavailable.",
+      );
+    default:
+      return new MediaRuntimeError(
+        "youtube_playback_error",
+        "YouTube reported an unknown playback error.",
+      );
   }
 }
 

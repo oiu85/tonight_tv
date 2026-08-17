@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  BUFFERING_GRACE_MS,
   createHtmlMediaPlayerAdapter,
   createMediaEndedCoordinator,
+  HLS_RUNTIME_CONFIG,
   type HlsRuntime,
   type HlsRuntimeFactory,
 } from "../../src/lib/media/html-media-adapter";
@@ -30,9 +32,14 @@ class FakeMediaElement extends EventTarget {
   currentTime = 0;
   duration = 120;
   playbackRate = 1;
+  volume = 1;
+  muted = false;
   paused = true;
   readyState = 0;
   seekable: TimeRanges = new FakeTimeRanges([[0, 120]]);
+  buffered: TimeRanges = new FakeTimeRanges([]);
+  seeking = false;
+  ended = false;
   error: MediaError | null = null;
   nativeHls = false;
   readonly load = vi.fn();
@@ -61,29 +68,35 @@ function asMediaElement(fake: FakeMediaElement): HTMLMediaElement {
 }
 
 function media(sourceUrl: string, sourceType: "auto" | "mp4" | "hls" = "auto") {
-  return { id: mediaId, title: "Movie", sourceUrl, sourceType } as const;
+  return { id: mediaId, title: "Movie", sourceUrl, sourceType, youtubeVideoId: null } as const;
 }
 
 function createHlsFake(supported = true) {
-  let errorListener: ((event: string, data: { type?: string; details?: string; fatal?: boolean }) => void) | null = null;
+  const listeners = new Map<string, (event: string, data: unknown) => void>();
   const runtime = {
     attachMedia: vi.fn(),
     loadSource: vi.fn(),
-    on: vi.fn((_event: string, listener: typeof errorListener) => {
-      errorListener = listener;
+    on: vi.fn((event: string, listener: (event: string, data: unknown) => void) => {
+      listeners.set(event, listener);
     }),
+    recoverMediaError: vi.fn(),
+    config: { lowLatencyMode: false },
     destroy: vi.fn(),
   } as unknown as HlsRuntime;
   const factory: HlsRuntimeFactory = {
     isSupported: () => supported,
     create: vi.fn(() => runtime),
     errorEvent: "hlsError",
+    levelLoadedEvent: "levelLoaded",
   };
   return {
     factory,
     runtime,
     emitError(data: { type?: string; details?: string; fatal?: boolean }) {
-      errorListener?.("hlsError", data);
+      listeners.get("hlsError")?.("hlsError", data);
+    },
+    emitLevelLoaded(data: { details: { live: boolean; totalduration: number } }) {
+      listeners.get("levelLoaded")?.("levelLoaded", data);
     },
   };
 }
@@ -152,11 +165,11 @@ describe("HTML media player adapter", () => {
     expect(hls.runtime.loadSource).toHaveBeenCalledWith(
       "https://media.example.test/live.m3u8",
     );
+    expect(hls.factory.create).toHaveBeenCalledWith(HLS_RUNTIME_CONFIG);
+    expect(hls.factory.create).toHaveBeenCalledTimes(1);
 
     hls.emitError({ type: "mediaError", details: "fragLoadError", fatal: false });
-    expect(onError).toHaveBeenCalledWith(
-      expect.objectContaining({ category: "hls_media_error", fatal: false }),
-    );
+    expect(onError).not.toHaveBeenCalled();
 
     await adapter.loadMedia(media("https://media.example.test/replacement.mp4", "mp4"));
     expect(hls.runtime.destroy).toHaveBeenCalledOnce();
@@ -182,7 +195,8 @@ describe("HTML media player adapter", () => {
     expect(element.paused).toBe(false);
   });
 
-  it("reports buffering recovery locally and never probes or proxies the source", async () => {
+  it("does not turn startup or a brief waiting event into visible buffering", async () => {
+    vi.useFakeTimers();
     const element = new FakeMediaElement();
     const onBufferingChange = vi.fn();
     const fetchSpy = vi.spyOn(globalThis, "fetch");
@@ -191,13 +205,120 @@ describe("HTML media player adapter", () => {
     });
 
     await adapter.loadMedia(media("https://media.example.test/watch/opaque", "auto"));
+    element.readyState = 2;
     element.dispatchEvent(new Event("waiting"));
+    await vi.advanceTimersByTimeAsync(BUFFERING_GRACE_MS + 1);
+    expect(onBufferingChange).not.toHaveBeenCalled();
+
+    element.paused = false;
+    element.dispatchEvent(new Event("playing"));
+    onBufferingChange.mockClear();
+    element.dispatchEvent(new Event("waiting"));
+    await vi.advanceTimersByTimeAsync(BUFFERING_GRACE_MS - 1);
+    element.readyState = 3;
     element.dispatchEvent(new Event("canplay"));
 
-    expect(onBufferingChange).toHaveBeenNthCalledWith(1, true);
-    expect(onBufferingChange).toHaveBeenNthCalledWith(2, false);
+    expect(onBufferingChange).not.toHaveBeenCalled();
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
+    adapter.destroy();
+    vi.useRealTimers();
+  });
+
+  it("reports a sustained mid-playback stall and clears it when time advances", async () => {
+    vi.useFakeTimers();
+    const element = new FakeMediaElement();
+    const onBufferingChange = vi.fn();
+    const adapter = createHtmlMediaPlayerAdapter(asMediaElement(element), {
+      events: { onBufferingChange },
+    });
+    await adapter.loadMedia(media("https://media.example.test/movie.mp4", "mp4"));
+    element.readyState = 2;
+    element.paused = false;
+    element.dispatchEvent(new Event("playing"));
+    onBufferingChange.mockClear();
+
+    element.dispatchEvent(new Event("waiting"));
+    await vi.advanceTimersByTimeAsync(BUFFERING_GRACE_MS);
+    expect(onBufferingChange).toHaveBeenLastCalledWith(true);
+
+    element.currentTime = 1;
+    element.dispatchEvent(new Event("timeupdate"));
+    expect(onBufferingChange).toHaveBeenLastCalledWith(false);
+
+    adapter.destroy();
+    vi.useRealTimers();
+  });
+
+  it("publishes finite metadata duration, preserves it across transient unknown values, and resets by source", async () => {
+    const element = new FakeMediaElement();
+    element.duration = Number.NaN;
+    const onDurationChange = vi.fn();
+    const adapter = createHtmlMediaPlayerAdapter(asMediaElement(element), {
+      events: { onDurationChange },
+    });
+    await adapter.loadMedia(media("https://media.example.test/movie.mp4", "mp4"));
+    expect(adapter.getDuration()).toBeNull();
+
+    element.duration = 125.5;
+    element.readyState = 1;
+    element.dispatchEvent(new Event("loadedmetadata"));
+    expect(adapter.getDuration()).toBe(125.5);
+    expect(onDurationChange).toHaveBeenLastCalledWith(125.5);
+
+    element.duration = Number.NaN;
+    element.dispatchEvent(new Event("durationchange"));
+    expect(adapter.getDuration()).toBe(125.5);
+
+    await adapter.loadMedia(media("https://media.example.test/next.mp4", "mp4"));
+    expect(adapter.getDuration()).toBeNull();
+    expect(onDurationChange).toHaveBeenLastCalledWith(null);
+  });
+
+  it("uses a finite VOD playlist duration fallback but never fabricates live duration", async () => {
+    const element = new FakeMediaElement();
+    element.duration = Number.NaN;
+    const hls = createHlsFake();
+    const adapter = createHtmlMediaPlayerAdapter(asMediaElement(element), {
+      hlsFactory: hls.factory,
+    });
+    await adapter.loadMedia(media("https://media.example.test/movie.m3u8", "hls"));
+
+    hls.emitLevelLoaded({ details: { live: false, totalduration: 142.25 } });
+    expect(adapter.getDuration()).toBe(142.25);
+    expect(hls.runtime.config?.lowLatencyMode).toBe(false);
+
+    await adapter.loadMedia(media("https://media.example.test/channel.m3u8", "hls"));
+    hls.emitLevelLoaded({ details: { live: true, totalduration: 60 } });
+    expect(adapter.getDuration()).toBeNull();
+    expect(hls.runtime.config?.lowLatencyMode).toBe(true);
+  });
+
+  it("keeps ABR automatic and performs one bounded hls.js media recovery", async () => {
+    const element = new FakeMediaElement();
+    const hls = createHlsFake();
+    const onError = vi.fn();
+    const adapter = createHtmlMediaPlayerAdapter(asMediaElement(element), {
+      hlsFactory: hls.factory,
+      events: { onError },
+    });
+    await adapter.loadMedia(media("https://media.example.test/movie.m3u8", "hls"));
+
+    expect(HLS_RUNTIME_CONFIG).toMatchObject({
+      startLevel: -1,
+      testBandwidth: true,
+      capLevelToPlayerSize: true,
+      maxBufferLength: 45,
+      backBufferLength: 30,
+    });
+    hls.emitError({ type: "mediaError", details: "bufferAppendError", fatal: true });
+    expect(hls.runtime.recoverMediaError).toHaveBeenCalledOnce();
+    expect(onError).not.toHaveBeenCalled();
+
+    hls.emitError({ type: "mediaError", details: "bufferAppendError", fatal: true });
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({ category: "hls_media_error", fatal: true }),
+    );
   });
 
   it("fails clearly when neither native HLS nor hls.js support is available", async () => {

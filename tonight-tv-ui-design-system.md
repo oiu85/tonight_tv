@@ -776,11 +776,14 @@ Fields:
 
 ```text
 Title
-Video URL
-Source Type: Auto | MP4 | HLS
+Source Type: Auto | MP4 | HLS | YouTube | Torrent
+Conditional direct URL, YouTube Video ID, or inspected Magnet/.torrent input
 ```
 
 Optional UI fields may be shown only if they have a real backend contract.
+
+Torrent inspection displays the normalized file selection and optional matched
+sidecar subtitles using Tonight TV controls. It never embeds Webtor player chrome.
 
 Do not promise poster/duration persistence unless the backend is extended intentionally.
 

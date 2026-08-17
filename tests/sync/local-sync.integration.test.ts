@@ -76,6 +76,16 @@ class IntegrationPlayer implements PlayerSyncAdapter {
   setPlaybackRate(rate: number) {
     this.playbackRate = rate;
   }
+  getAvailablePlaybackRates() {
+    return [1] as const;
+  }
+  getCapabilities() {
+    return {
+      supportsFinePlaybackRateCorrection: true,
+      supportsPictureInPicture: true,
+      supportsNativeTextTracks: true,
+    } as const;
+  }
 }
 
 describe.runIf(shouldRun)("local Supabase synchronization transport", () => {

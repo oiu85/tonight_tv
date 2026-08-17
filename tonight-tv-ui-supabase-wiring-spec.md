@@ -604,9 +604,13 @@ Support:
 auto
 mp4
 hls
+youtube
+torrent
 ```
 
 Native HLS where appropriate; otherwise hls.js according to repository implementation.
+Torrent runtime URLs are resolved through the authenticated control endpoint and
+then loaded by the same HTML5/hls.js runtime. They are never canonical DB fields.
 
 ---
 
