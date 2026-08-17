@@ -326,6 +326,32 @@ describe("room synchronization lifecycle", () => {
     expect(harness.coordinator.getState().status).toBe("live");
   });
 
+  it("reloads the same current media ID when its source metadata changes", async () => {
+    const harness = createHarness();
+    await harness.coordinator.start(startOptions);
+    const changedSnapshot = makeSnapshot();
+    harness.setSnapshot({
+      ...changedSnapshot,
+      current_media: {
+        ...changedSnapshot.current_media!,
+        source_url: "https://media.example/movie-v2.m3u8",
+        source_type: "hls",
+        updated_at: new Date(serverNowMs + 1_000).toISOString(),
+      },
+    });
+
+    await harness.channel.getHandlers().onQueueChanged?.({
+      room_id: roomId,
+    });
+
+    expect(harness.player.loads).toHaveLength(2);
+    expect(harness.player.loads[1]).toMatchObject({
+      id: mediaId,
+      sourceUrl: "https://media.example/movie-v2.m3u8",
+      sourceType: "hls",
+    });
+  });
+
   it("GO LIVE fetches truth, refreshes a stale clock, and only operates locally", async () => {
     const harness = createHarness();
     await harness.coordinator.start(startOptions);

@@ -91,7 +91,7 @@ select is(
       'private.realtime_room_id(text)'::regprocedure,
       'private.send_room_event(uuid,text,jsonb)'::regprocedure,
       'private.broadcast_playback_state_changed()'::regprocedure,
-      'private.broadcast_queue_changed()'::regprocedure,
+      'private.broadcast_media_items_statement()'::regprocedure,
       'private.broadcast_subtitle_metadata_changed()'::regprocedure
     )
       and proconfig = array['search_path=""']::text[]
@@ -139,7 +139,7 @@ select is(
       'private.realtime_room_id(text)'::regprocedure,
       'private.send_room_event(uuid,text,jsonb)'::regprocedure,
       'private.broadcast_playback_state_changed()'::regprocedure,
-      'private.broadcast_queue_changed()'::regprocedure,
+      'private.broadcast_media_items_statement()'::regprocedure,
       'private.broadcast_subtitle_metadata_changed()'::regprocedure
     )
       and acl.grantee = 0
@@ -280,10 +280,12 @@ select is(
       and extension = 'broadcast'
       and event = 'queue_changed'
       and private is true
-      and payload->>'media_id' = '20000000-0000-4000-8000-0000000000a1'
+      and payload->>'room_id' = (
+        select value::text from pg_temp.realtime_context where key = 'room_a'
+      )
   ),
   1::bigint,
-  'a committed queue mutation creates one compact private database Broadcast'
+  'a committed queue mutation creates one compact room-scoped private database Broadcast'
 );
 
 set local role authenticated;

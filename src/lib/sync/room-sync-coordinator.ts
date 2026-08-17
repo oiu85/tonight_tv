@@ -171,6 +171,7 @@ export function createRoomSyncCoordinator(
   let handlers: RoomSyncHandlers | undefined;
   let snapshot: RoomSnapshot | null = null;
   let canonicalPlayback: CanonicalPlaybackState | null = null;
+  let loadedMedia: SyncMedia | null = null;
   let status: RoomSyncStatus = "idle";
   let reason: RoomSyncReason | null = null;
   let error: RoomSyncError | RoomChannelError | null = null;
@@ -375,6 +376,7 @@ export function createRoomSyncCoordinator(
       if (player.getMediaId() !== null) {
         await player.loadMedia(null);
       }
+      loadedMedia = null;
       await alignPlayer(forceAlignment);
       return;
     }
@@ -386,9 +388,16 @@ export function createRoomSyncCoordinator(
       );
     }
 
-    if (player.getMediaId() !== media.id) {
+    const sourceChanged =
+      player.getMediaId() !== media.id ||
+      !loadedMedia ||
+      loadedMedia.id !== media.id ||
+      loadedMedia.sourceUrl !== media.sourceUrl ||
+      loadedMedia.sourceType !== media.sourceType;
+    if (sourceChanged) {
       resetPlaybackRate();
       await player.loadMedia(media);
+      loadedMedia = media;
       await player.waitUntilReady();
       forceAlignment = true;
     } else if (forceAlignment && !player.isReady()) {
@@ -640,6 +649,7 @@ export function createRoomSyncCoordinator(
     identity = null;
     snapshot = null;
     canonicalPlayback = null;
+    loadedMedia = null;
     watchers = Object.freeze([]);
     buffering = false;
     hiddenAtMonotonicMs = null;

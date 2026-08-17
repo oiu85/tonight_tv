@@ -248,6 +248,25 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      add_media_item: {
+        Args: {
+          p_room_id: string
+          p_source_type?: Database["public"]["Enums"]["media_source_type"]
+          p_source_url: string
+          p_title: string
+        }
+        Returns: {
+          created_at: string
+          created_by: string
+          id: string
+          queue_position: number
+          room_id: string
+          source_type: Database["public"]["Enums"]["media_source_type"]
+          source_url: string
+          title: string
+          updated_at: string
+        }[]
+      }
       create_room: {
         Args: { p_name: string }
         Returns: {
@@ -259,6 +278,26 @@ export type Database = {
           room_id: string
           room_name: string
           state_version: number
+          updated_at: string
+        }[]
+      }
+      edit_media_item: {
+        Args: {
+          p_media_id: string
+          p_room_id: string
+          p_source_type: Database["public"]["Enums"]["media_source_type"]
+          p_source_url: string
+          p_title: string
+        }
+        Returns: {
+          created_at: string
+          created_by: string
+          id: string
+          queue_position: number
+          room_id: string
+          source_type: Database["public"]["Enums"]["media_source_type"]
+          source_url: string
+          title: string
           updated_at: string
         }[]
       }
@@ -285,6 +324,34 @@ export type Database = {
           session_id: string
           updated_at: string
           user_id: string
+        }[]
+      }
+      remove_media_item: {
+        Args: { p_media_id: string; p_room_id: string }
+        Returns: {
+          created_at: string
+          created_by: string
+          id: string
+          queue_position: number
+          room_id: string
+          source_type: Database["public"]["Enums"]["media_source_type"]
+          source_url: string
+          title: string
+          updated_at: string
+        }[]
+      }
+      reorder_media_items: {
+        Args: { p_ordered_media_ids: string[]; p_room_id: string }
+        Returns: {
+          created_at: string
+          created_by: string
+          id: string
+          queue_position: number
+          room_id: string
+          source_type: Database["public"]["Enums"]["media_source_type"]
+          source_url: string
+          title: string
+          updated_at: string
         }[]
       }
       room_mark_ended: {
