@@ -3,6 +3,7 @@ import { afterAll, describe, expect, it } from "vitest";
 
 import {
   createRoomChannelService,
+  type ChatMessageCreatedEvent,
   type PlaybackStateChangedEvent,
 } from "../../src/lib/realtime/room-channel-service";
 import type { Database } from "../../src/lib/supabase/database.types";
@@ -65,7 +66,7 @@ describe.runIf(shouldRun)("local Supabase private Realtime transport", () => {
   });
 
   it(
-    "authorizes members, rejects outsiders/forged Broadcast, delivers DB playback, and tracks Presence",
+    "authorizes members, rejects outsiders/forged Broadcast, delivers DB playback/chat, and tracks Presence",
     async () => {
       expect(localUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
       expect(publishableKey).toBeTruthy();
@@ -123,6 +124,7 @@ describe.runIf(shouldRun)("local Supabase private Realtime transport", () => {
       const ownerRoomSessionId = ownerJoin.data?.[0]?.session_id as string;
       const viewerRoomSessionId = viewerJoin.data?.[0]?.session_id as string;
       const playbackReceived = deferred<PlaybackStateChangedEvent>();
+      const chatReceived = deferred<ChatMessageCreatedEvent>();
       const twoWatchersSeen = deferred<void>();
 
       const ownerChannel = createRoomChannelService(owner);
@@ -158,6 +160,7 @@ describe.runIf(shouldRun)("local Supabase private Realtime transport", () => {
         initialStateVersion: 0,
         handlers: {
           onPlaybackState: (event) => playbackReceived.resolve(event),
+          onChatMessageCreated: (event) => chatReceived.resolve(event),
           onReconcile: (reason) =>
             playbackReceived.reject(new Error(`Unexpected reconciliation: ${reason}`)),
           onWatchersChanged: (watchers) => {
@@ -244,11 +247,41 @@ describe.runIf(shouldRun)("local Supabase private Realtime transport", () => {
       expect(event.status).toBe(canonical.data?.status);
       expect(event.current_media_id).toBe(canonical.data?.current_media_id);
 
-      await Promise.all([
-        ownerChannel.disconnect(),
-        viewerChannel.disconnect(),
-        outsiderChannel.disconnect(),
-      ]);
+      const outsiderSend = await outsider.rpc("send_chat_message", {
+        p_room_id: roomId as string,
+        p_body: "Outsider message",
+      });
+      expect(outsiderSend.error).not.toBeNull();
+
+      const unauthenticated = createTestClient();
+      clients.push(unauthenticated);
+      const unauthenticatedSend = await unauthenticated.rpc("send_chat_message", {
+        p_room_id: roomId as string,
+        p_body: "Anonymous message",
+      });
+      expect(unauthenticatedSend.error).not.toBeNull();
+
+      const sentChat = await owner.rpc("send_chat_message", {
+        p_room_id: roomId as string,
+        p_body: "  Live persistent chat  ",
+      });
+      expect(sentChat.error).toBeNull();
+      const canonicalChat = sentChat.data?.[0];
+      const liveChat = await chatReceived.promise;
+      expect(liveChat).toEqual(canonicalChat);
+      expect(liveChat.body).toBe("Live persistent chat");
+      expect(liveChat.sender_display_name).toBe("Owner A");
+
+      await viewerChannel.disconnect();
+      const durableMembership = await owner
+        .from("room_sessions")
+        .select("id", { count: "exact", head: true })
+        .eq("room_id", roomId as string)
+        .eq("user_id", viewerSession.user.id);
+      expect(durableMembership.error).toBeNull();
+      expect(durableMembership.count).toBe(1);
+
+      await Promise.all([ownerChannel.disconnect(), outsiderChannel.disconnect()]);
     },
     30_000,
   );

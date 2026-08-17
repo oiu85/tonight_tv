@@ -99,6 +99,7 @@ function createHandlers(
     onReconcile: vi.fn(),
     onQueueChanged: vi.fn(),
     onSubtitleMetadataChanged: vi.fn(),
+    onChatMessageCreated: vi.fn(),
     onWatchersChanged: vi.fn(),
     onStatusChanged: vi.fn(),
     ...overrides,
@@ -242,6 +243,7 @@ describe("room channel lifecycle", () => {
 
     expect(createChannel).toHaveBeenCalledOnce();
     expect(channel.handlers.get("broadcast:playback_state_changed")).toHaveLength(1);
+    expect(channel.handlers.get("broadcast:chat_message_created")).toHaveLength(1);
 
     await service.disconnect();
 
@@ -293,6 +295,34 @@ describe("room channel lifecycle", () => {
       expect(onReconcile).toHaveBeenCalledWith("malformed_event"),
     );
     expect(handlers.onQueueChanged).not.toHaveBeenCalled();
+  });
+
+  it("validates and forwards database-originated chat messages", async () => {
+    const { client, channel } = createClientMock();
+    const onChatMessageCreated = vi.fn();
+    const onReconcile = vi.fn();
+    const handlers = createHandlers({ onChatMessageCreated, onReconcile });
+    const service = createRoomChannelService(client);
+
+    await connectSubscribed(service, channel, createOptions(handlers));
+    channel.emit("broadcast", "chat_message_created", {
+      payload: {
+        id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        room_id: roomId,
+        user_id: userId,
+        sender_display_name: "Viewer B",
+        body: "Hello",
+        created_at: timestamp,
+      },
+    });
+
+    await vi.waitFor(() => expect(onChatMessageCreated).toHaveBeenCalledOnce());
+    expect(onReconcile).not.toHaveBeenCalled();
+
+    channel.emit("broadcast", "chat_message_created", {
+      payload: { room_id: roomId, body: "missing fields" },
+    });
+    await vi.waitFor(() => expect(onReconcile).toHaveBeenCalledWith("malformed_event"));
   });
 
   it("re-tracks Presence and exposes one reconciliation after reconnect", async () => {

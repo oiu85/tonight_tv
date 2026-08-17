@@ -1,5 +1,10 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { describe, expect, it, vi } from "vitest";
 
+import {
+  createRoomChatService,
+  type ChatMessage,
+} from "../../src/lib/chat/room-chat-service";
 import type {
   PlaybackStateChangedEvent,
   RoomChannelConnectOptions,
@@ -9,6 +14,7 @@ import type {
 import type { RoomSnapshot } from "../../src/lib/rooms/room-service";
 import type { ClockCalibrator } from "../../src/lib/sync/clock-calibrator";
 import { createRoomSyncCoordinator } from "../../src/lib/sync/room-sync-coordinator";
+import type { Database } from "../../src/lib/supabase/database.types";
 import type {
   PlayerSyncAdapter,
   SyncMedia,
@@ -209,9 +215,14 @@ function createHarness(initialSnapshot = makeSnapshot()) {
   const player = new FakePlayer();
   const channel = createChannelFake();
   const clock = createClockFake();
+  const chatRpc = vi.fn();
+  const chatService = createRoomChatService({
+    rpc: chatRpc,
+  } as unknown as SupabaseClient<Database>);
   const coordinator = createRoomSyncCoordinator({
     roomService: { fetchSnapshot },
     channelService: channel.service,
+    chatService,
     clockCalibrator: clock.calibrator,
     player,
     monotonicNowMs: () => monotonicMs,
@@ -224,6 +235,7 @@ function createHarness(initialSnapshot = makeSnapshot()) {
     player,
     channel,
     clock,
+    chatRpc,
     setSnapshot(nextSnapshot: RoomSnapshot) {
       activeSnapshot = nextSnapshot;
     },
@@ -296,6 +308,58 @@ describe("room synchronization lifecycle", () => {
     expect(harness.fetchSnapshot).toHaveBeenCalledTimes(baselineFetches + 1);
     expect(harness.clock.calibrationCount).toBe(baselineCalibrations + 1);
     expect(harness.coordinator.getState().reason).toBe("realtime_reconnected");
+  });
+
+  it("restores messages missed during disconnect from the reconnect snapshot", async () => {
+    const firstMessage = {
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      user_id: userId,
+      sender_display_name: "Owner A",
+      body: "Before disconnect",
+      created_at: "2026-08-17T11:59:58.000Z",
+    };
+    const missedMessage = {
+      id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      user_id: userId,
+      sender_display_name: "Owner A",
+      body: "Missed while offline",
+      created_at: "2026-08-17T11:59:59.000Z",
+    };
+    const harness = createHarness({
+      ...makeSnapshot(),
+      recent_chat: [firstMessage],
+    });
+    await harness.coordinator.start(startOptions);
+
+    harness.setSnapshot({
+      ...makeSnapshot(),
+      recent_chat: [firstMessage, missedMessage],
+    });
+    await harness.channel.getHandlers().onReconcile("reconnected");
+
+    expect(harness.coordinator.getState().chatMessages.map((item) => item.body)).toEqual([
+      "Before disconnect",
+      "Missed while offline",
+    ]);
+  });
+
+  it("keeps one message when the send response is followed by its Broadcast", async () => {
+    const canonical: ChatMessage = {
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      room_id: roomId,
+      user_id: userId,
+      sender_display_name: "Owner A",
+      body: "One canonical message",
+      created_at: "2026-08-17T12:00:01.000Z",
+    };
+    const harness = createHarness();
+    harness.chatRpc.mockResolvedValue({ data: [canonical], error: null });
+    await harness.coordinator.start(startOptions);
+
+    await harness.coordinator.sendChatMessage("One canonical message");
+    await harness.channel.getHandlers().onChatMessageCreated?.(canonical);
+
+    expect(harness.coordinator.getState().chatMessages).toEqual([canonical]);
   });
 
   it("resyncs after a long background interval without trusting browser timers", async () => {

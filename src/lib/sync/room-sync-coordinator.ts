@@ -1,6 +1,11 @@
 "use client";
 
 import {
+  getBrowserRoomChatService,
+  type ChatMessage,
+  type RoomChatService,
+} from "../chat/room-chat-service";
+import {
   getBrowserRoomChannelService,
   type PlaybackStateChangedEvent,
   type ReconcileReason,
@@ -80,6 +85,7 @@ export type RoomSyncState = Readonly<{
   snapshot: RoomSnapshot | null;
   channelStatus: RoomChannelStatus;
   watchers: readonly RoomWatcher[];
+  chatMessages: readonly ChatMessage[];
   error: RoomSyncError | RoomChannelError | null;
 }>;
 
@@ -98,6 +104,7 @@ export type RoomSyncCoordinator = Readonly<{
   stop: () => Promise<void>;
   tick: () => Promise<void>;
   goLive: () => Promise<void>;
+  sendChatMessage: (body: string) => Promise<ChatMessage>;
   handleVisibilityChange: (visible: boolean) => Promise<void>;
   handleBufferingChange: (buffering: boolean) => Promise<void>;
   getState: () => RoomSyncState;
@@ -106,6 +113,7 @@ export type RoomSyncCoordinator = Readonly<{
 export type RoomSyncDependencies = Readonly<{
   roomService: Pick<RoomService, "fetchSnapshot">;
   channelService: RoomChannelService;
+  chatService: RoomChatService;
   clockCalibrator: ClockCalibrator;
   player: PlayerSyncAdapter;
   monotonicNowMs?: () => number;
@@ -157,6 +165,7 @@ export function createRoomSyncCoordinator(
   const {
     roomService,
     channelService,
+    chatService,
     clockCalibrator,
     player,
   } = dependencies;
@@ -177,6 +186,7 @@ export function createRoomSyncCoordinator(
   let error: RoomSyncError | RoomChannelError | null = null;
   let channelStatus: RoomChannelStatus = "idle";
   let watchers: readonly RoomWatcher[] = Object.freeze([]);
+  let chatMessages: readonly ChatMessage[] = Object.freeze([]);
   let buffering = false;
   let hiddenAtMonotonicMs: number | null = null;
   let rateCorrectionActive = false;
@@ -197,6 +207,7 @@ export function createRoomSyncCoordinator(
       snapshot,
       channelStatus,
       watchers,
+      chatMessages,
       error,
     });
   }
@@ -412,6 +423,11 @@ export function createRoomSyncCoordinator(
     forceAlignment: boolean,
   ): Promise<void> {
     validateSnapshotAccess(nextSnapshot);
+    chatMessages = chatService.hydrate(
+      nextSnapshot.room.id,
+      nextSnapshot.recent_chat,
+    );
+    publishState();
     const nextPlayback = snapshotPlayback(nextSnapshot);
 
     if (
@@ -549,6 +565,11 @@ export function createRoomSyncCoordinator(
     await applyCanonicalState(event, snapshotMedia(snapshot!), false);
   }
 
+  async function applyRealtimeChat(message: ChatMessage): Promise<void> {
+    chatMessages = chatService.mergeLiveMessage(message);
+    publishState();
+  }
+
   async function start(options: RoomSyncStartOptions): Promise<void> {
     const sameActiveRoom =
       roomId === options.roomId &&
@@ -599,6 +620,7 @@ export function createRoomSyncCoordinator(
               requestReconciliation("room_metadata_changed"),
             onSubtitleMetadataChanged: () =>
               requestReconciliation("room_metadata_changed"),
+            onChatMessageCreated: applyRealtimeChat,
             onWatchersChanged: (nextWatchers) => {
               watchers = nextWatchers;
               publishState();
@@ -651,6 +673,8 @@ export function createRoomSyncCoordinator(
     canonicalPlayback = null;
     loadedMedia = null;
     watchers = Object.freeze([]);
+    chatService.clear();
+    chatMessages = Object.freeze([]);
     buffering = false;
     hiddenAtMonotonicMs = null;
     channelStatus = "closed";
@@ -677,6 +701,20 @@ export function createRoomSyncCoordinator(
 
   async function goLive(): Promise<void> {
     await requestReconciliation("go_live", { forceAlignment: true });
+  }
+
+  async function sendChatMessage(body: string): Promise<ChatMessage> {
+    if (!roomId || !identity) {
+      throw new RoomSyncError(
+        "invalid_start_state",
+        "Room synchronization must be started after Auth and durable room join.",
+      );
+    }
+
+    const message = await chatService.sendMessage(roomId, body);
+    chatMessages = chatService.getMessages();
+    publishState();
+    return message;
   }
 
   async function handleVisibilityChange(visible: boolean): Promise<void> {
@@ -724,6 +762,7 @@ export function createRoomSyncCoordinator(
     stop,
     tick,
     goLive,
+    sendChatMessage,
     handleVisibilityChange,
     handleBufferingChange,
     getState: currentState,
@@ -737,6 +776,7 @@ export function createBrowserRoomSyncCoordinator(
   return createRoomSyncCoordinator({
     roomService,
     channelService: getBrowserRoomChannelService(),
+    chatService: getBrowserRoomChatService(),
     clockCalibrator: createRoomClockCalibrator(roomService),
     player,
   });

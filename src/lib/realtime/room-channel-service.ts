@@ -6,6 +6,10 @@ import type {
   SupabaseClient,
 } from "@supabase/supabase-js";
 
+import {
+  parseChatMessage,
+  type ChatMessage,
+} from "../chat/room-chat-service";
 import { createBrowserSupabaseClient } from "../supabase/browser";
 import type { Database } from "../supabase/database.types";
 
@@ -78,13 +82,16 @@ export type SubtitleMetadataChangedEvent = Readonly<{
   operation?: "insert" | "update" | "delete";
 }>;
 
+export type ChatMessageCreatedEvent = ChatMessage;
+
 export type ReconcileReason =
   | "reconnected"
   | "version_gap"
   | "malformed_event"
   | "playback_handler_failed"
   | "queue_handler_failed"
-  | "subtitle_handler_failed";
+  | "subtitle_handler_failed"
+  | "chat_handler_failed";
 
 export type PlaybackEventDecision =
   | Readonly<{ kind: "ignore"; reason: "stale_or_duplicate" }>
@@ -99,6 +106,9 @@ export type RoomChannelHandlers = Readonly<{
   onQueueChanged?: (event: QueueChangedEvent) => void | Promise<void>;
   onSubtitleMetadataChanged?: (
     event: SubtitleMetadataChangedEvent,
+  ) => void | Promise<void>;
+  onChatMessageCreated?: (
+    event: ChatMessageCreatedEvent,
   ) => void | Promise<void>;
   onWatchersChanged?: (watchers: readonly RoomWatcher[]) => void;
   onStatusChanged?: (
@@ -477,6 +487,24 @@ export function createRoomChannelService(
     }
   }
 
+  async function handleChatBroadcast(message: unknown): Promise<void> {
+    if (!activeRoomId || !handlers) {
+      return;
+    }
+
+    const event = parseChatMessage(extractPayload(message), activeRoomId);
+    if (!event) {
+      await requestReconciliation("malformed_event");
+      return;
+    }
+
+    try {
+      await handlers.onChatMessageCreated?.(event);
+    } catch {
+      await requestReconciliation("chat_handler_failed");
+    }
+  }
+
   async function trackPresence(activeChannel: RealtimeChannel): Promise<void> {
     if (!identity) {
       return;
@@ -598,6 +626,9 @@ export function createRoomChannelService(
           void handleSubtitleBroadcast(message);
         },
       )
+      .on("broadcast", { event: "chat_message_created" }, (message) => {
+        void handleChatBroadcast(message);
+      })
       .on("presence", { event: "sync" }, () => updateWatchers(nextChannel))
       .on("presence", { event: "join" }, () => updateWatchers(nextChannel))
       .on("presence", { event: "leave" }, () => updateWatchers(nextChannel));

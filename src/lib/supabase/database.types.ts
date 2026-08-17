@@ -447,6 +447,17 @@ export type Database = {
           updated_at: string
         }[]
       }
+      send_chat_message: {
+        Args: { p_body: string; p_room_id: string }
+        Returns: {
+          body: string
+          created_at: string
+          id: string
+          room_id: string
+          sender_display_name: string
+          user_id: string
+        }[]
+      }
     }
     Enums: {
       media_source_type: "auto" | "mp4" | "hls"

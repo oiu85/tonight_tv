@@ -1,6 +1,7 @@
 import { createClient, type Session } from "@supabase/supabase-js";
 import { afterAll, describe, expect, it, vi } from "vitest";
 
+import { createRoomChatService } from "../../src/lib/chat/room-chat-service";
 import { createPlaybackCommandService } from "../../src/lib/playback/playback-command-service";
 import { createRoomChannelService } from "../../src/lib/realtime/room-channel-service";
 import { createRoomService } from "../../src/lib/rooms/room-service";
@@ -166,6 +167,7 @@ describe.runIf(shouldRun)("local Supabase synchronization transport", () => {
         const coordinator = createRoomSyncCoordinator({
           roomService,
           channelService: createRoomChannelService(client),
+          chatService: createRoomChatService(client),
           clockCalibrator: createRoomClockCalibrator(roomService, {
             sampleCount: 1,
           }),
