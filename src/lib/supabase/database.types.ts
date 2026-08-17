@@ -388,6 +388,16 @@ export type Database = {
           updated_at: string
         }[]
       }
+      rename_room: {
+        Args: { p_name: string; p_room_id: string }
+        Returns: {
+          created_at: string
+          id: string
+          name: string
+          owner_user_id: string
+          updated_at: string
+        }[]
+      }
       room_mark_ended: {
         Args: { p_expected_version: number; p_room_id: string }
         Returns: {
@@ -628,4 +638,3 @@ export const Constants = {
     },
   },
 } as const
-

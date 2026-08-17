@@ -83,6 +83,11 @@ export type SubtitleMetadataChangedEvent = Readonly<{
 }>;
 
 export type ChatMessageCreatedEvent = ChatMessage;
+export type RoomChangedEvent = Readonly<{
+  room_id: string;
+  name: string;
+  updated_at: string;
+}>;
 
 export type ReconcileReason =
   | "reconnected"
@@ -110,6 +115,7 @@ export type RoomChannelHandlers = Readonly<{
   onChatMessageCreated?: (
     event: ChatMessageCreatedEvent,
   ) => void | Promise<void>;
+  onRoomChanged?: (event: RoomChangedEvent) => void | Promise<void>;
   onWatchersChanged?: (watchers: readonly RoomWatcher[]) => void;
   onStatusChanged?: (
     status: RoomChannelStatus,
@@ -301,6 +307,16 @@ function parseSubtitleEvent(
             payload.operation as SubtitleMetadataChangedEvent["operation"],
         }),
   };
+}
+
+function parseRoomChangedEvent(payload: unknown, expectedRoomId: string): RoomChangedEvent | null {
+  if (!isRecord(payload) || payload.room_id !== expectedRoomId || !isUuid(payload.room_id)) {
+    return null;
+  }
+  if (typeof payload.name !== "string" || payload.name.trim() !== payload.name || payload.name.length < 1 || payload.name.length > 120 || !isTimestamp(payload.updated_at)) {
+    return null;
+  }
+  return { room_id: expectedRoomId, name: payload.name, updated_at: payload.updated_at };
 }
 
 function parsePresence(value: unknown): RoomWatcher | null {
@@ -505,6 +521,16 @@ export function createRoomChannelService(
     }
   }
 
+  async function handleRoomChangedBroadcast(message: unknown): Promise<void> {
+    if (!activeRoomId || !handlers) return;
+    const event = parseRoomChangedEvent(extractPayload(message), activeRoomId);
+    if (!event) {
+      await requestReconciliation("malformed_event");
+      return;
+    }
+    await handlers.onRoomChanged?.(event);
+  }
+
   async function trackPresence(activeChannel: RealtimeChannel): Promise<void> {
     if (!identity) {
       return;
@@ -628,6 +654,9 @@ export function createRoomChannelService(
       )
       .on("broadcast", { event: "chat_message_created" }, (message) => {
         void handleChatBroadcast(message);
+      })
+      .on("broadcast", { event: "room_changed" }, (message) => {
+        void handleRoomChangedBroadcast(message);
       })
       .on("presence", { event: "sync" }, () => updateWatchers(nextChannel))
       .on("presence", { event: "join" }, () => updateWatchers(nextChannel))

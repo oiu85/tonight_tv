@@ -94,6 +94,56 @@ describe("Room service", () => {
     });
   });
 
+  it("lists only the authenticated owner's rooms newest first", async () => {
+    const rooms = [
+      {
+        id: roomId,
+        owner_user_id: userId,
+        name: "Movie night",
+        created_at: timestamp,
+        updated_at: timestamp,
+      },
+    ];
+    const order = vi.fn().mockResolvedValue({ data: rooms, error: null });
+    const eq = vi.fn().mockReturnValue({ order });
+    const select = vi.fn().mockReturnValue({ eq });
+    const from = vi.fn().mockReturnValue({ select });
+    const client = {
+      auth: {
+        getUser: vi.fn().mockResolvedValue({
+          data: { user: { id: userId } },
+          error: null,
+        }),
+      },
+      from,
+    } as unknown as SupabaseClient<Database>;
+
+    await expect(createRoomService(client).listOwnedRooms()).resolves.toEqual(rooms);
+    expect(from).toHaveBeenCalledWith("rooms");
+    expect(select).toHaveBeenCalledWith("*");
+    expect(eq).toHaveBeenCalledWith("owner_user_id", userId);
+    expect(order).toHaveBeenCalledWith("updated_at", { ascending: false });
+  });
+
+  it("normalizes and forwards owner-authorized room renames", async () => {
+    const renamed = {
+      id: roomId,
+      owner_user_id: userId,
+      name: "Saturday cinema",
+      created_at: timestamp,
+      updated_at: timestamp,
+    };
+    const { client, rpc } = createClientMock({ data: [renamed], error: null });
+
+    await expect(
+      createRoomService(client).renameRoom(roomId, "  Saturday cinema  "),
+    ).resolves.toEqual(renamed);
+    expect(rpc).toHaveBeenCalledWith("rename_room", {
+      p_room_id: roomId,
+      p_name: "Saturday cinema",
+    });
+  });
+
   it("maps an empty exact-ID preview to a stable not-found error", async () => {
     const { client } = createClientMock({ data: [], error: null });
 

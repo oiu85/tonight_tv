@@ -108,6 +108,12 @@ export type RoomSyncCoordinator = Readonly<{
   handleVisibilityChange: (visible: boolean) => Promise<void>;
   handleBufferingChange: (buffering: boolean) => Promise<void>;
   getState: () => RoomSyncState;
+  /**
+   * Returns the viewer's behind-live seconds, derived from the calibrated
+   * server clock and the canonical playback state. Returns 0 when the room
+   * is not actively playing or the player is not ready.
+   */
+  getBehindSeconds: () => number;
 }>;
 
 export type RoomSyncDependencies = Readonly<{
@@ -621,6 +627,8 @@ export function createRoomSyncCoordinator(
             onSubtitleMetadataChanged: () =>
               requestReconciliation("room_metadata_changed"),
             onChatMessageCreated: applyRealtimeChat,
+            onRoomChanged: () =>
+              requestReconciliation("room_metadata_changed"),
             onWatchersChanged: (nextWatchers) => {
               watchers = nextWatchers;
               publishState();
@@ -757,6 +765,21 @@ export function createRoomSyncCoordinator(
     await tick();
   }
 
+  function getBehindSeconds(): number {
+    if (!canonicalPlayback || canonicalPlayback.status !== "playing") {
+      return 0;
+    }
+    const expected = expectedCanonicalPosition(
+      canonicalPlayback,
+      clockCalibrator.estimatedServerNowMs(),
+      player.getDuration(),
+    );
+    if (expected === null) {
+      return 0;
+    }
+    return Math.max(0, expected - player.getCurrentTime());
+  }
+
   return Object.freeze({
     start,
     stop,
@@ -766,6 +789,7 @@ export function createRoomSyncCoordinator(
     handleVisibilityChange,
     handleBufferingChange,
     getState: currentState,
+    getBehindSeconds,
   });
 }
 

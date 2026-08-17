@@ -7,6 +7,8 @@ type PublicFunctions = Database["public"]["Functions"];
 
 export type CreatedRoom = PublicFunctions["create_room"]["Returns"][number];
 export type JoinedRoomSession = PublicFunctions["join_room"]["Returns"][number];
+export type OwnedRoom = Readonly<Database["public"]["Tables"]["rooms"]["Row"]>;
+export type RenamedRoom = PublicFunctions["rename_room"]["Returns"][number];
 
 export type RoomJoinPreview = Readonly<
   Omit<PublicFunctions["get_room_join_preview"]["Returns"][number], "current_title"> & {
@@ -100,6 +102,8 @@ export class RoomServiceError extends Error {
 
 export type RoomService = Readonly<{
   createRoom: (name: string) => Promise<CreatedRoom>;
+  listOwnedRooms: () => Promise<readonly OwnedRoom[]>;
+  renameRoom: (roomId: string, name: string) => Promise<RenamedRoom>;
   joinRoom: (roomId: string, displayName: string) => Promise<JoinedRoomSession>;
   getRoomJoinPreview: (roomId: string) => Promise<RoomJoinPreview>;
   fetchSnapshot: (roomId: string, chatLimit?: number) => Promise<RoomSnapshot>;
@@ -146,6 +150,12 @@ function invalidResponse(operation: string): RoomServiceError {
     "invalid_response",
     `Supabase returned an invalid response for ${operation}.`,
   );
+}
+
+function validateRoomId(roomId: string): void {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(roomId)) {
+    throw new RoomServiceError("invalid_input", "Room ID must be a valid UUID.");
+  }
 }
 
 function firstRow<T>(rows: readonly T[] | null, operation: string): T {
@@ -205,6 +215,45 @@ export function createRoomService(client: SupabaseClient<Database>): RoomService
     }
 
     return firstRow(data, "room creation");
+  }
+
+  async function listOwnedRooms(): Promise<readonly OwnedRoom[]> {
+    const { data: authData, error: authError } = await client.auth.getUser();
+    if (authError || !authData.user) {
+      throw new RoomServiceError(
+        "authentication_required",
+        "Authentication is required to load owned rooms.",
+        { cause: authError ?? undefined },
+      );
+    }
+    const { data, error } = await client
+      .from("rooms")
+      .select("*")
+      .eq("owner_user_id", authData.user.id)
+      .order("updated_at", { ascending: false });
+    if (error) {
+      throw asRoomServiceError(error, "Unable to load your rooms.");
+    }
+    return Object.freeze((data ?? []).map((room) => Object.freeze(room)));
+  }
+
+  async function renameRoom(roomId: string, name: string): Promise<RenamedRoom> {
+    validateRoomId(roomId);
+    const normalizedName = name.trim();
+    if (normalizedName.length < 1 || normalizedName.length > 120) {
+      throw new RoomServiceError(
+        "invalid_input",
+        "Room name must contain between 1 and 120 characters.",
+      );
+    }
+    const { data, error } = await client.rpc("rename_room", {
+      p_room_id: roomId,
+      p_name: normalizedName,
+    });
+    if (error) {
+      throw asRoomServiceError(error, "Unable to rename the room.");
+    }
+    return firstRow(data, "room rename");
   }
 
   async function joinRoom(
@@ -275,6 +324,8 @@ export function createRoomService(client: SupabaseClient<Database>): RoomService
 
   return Object.freeze({
     createRoom,
+    listOwnedRooms,
+    renameRoom,
     joinRoom,
     getRoomJoinPreview,
     fetchSnapshot,

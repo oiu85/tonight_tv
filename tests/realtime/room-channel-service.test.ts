@@ -325,6 +325,39 @@ describe("room channel lifecycle", () => {
     await vi.waitFor(() => expect(onReconcile).toHaveBeenCalledWith("malformed_event"));
   });
 
+  it("validates room metadata broadcasts and reconciles malformed payloads", async () => {
+    const { client, channel } = createClientMock();
+    const onRoomChanged = vi.fn();
+    const onReconcile = vi.fn();
+    const handlers = createHandlers({ onRoomChanged, onReconcile });
+    const service = createRoomChannelService(client);
+
+    await connectSubscribed(service, channel, createOptions(handlers));
+    channel.emit("broadcast", "room_changed", {
+      payload: {
+        room_id: roomId,
+        name: "Saturday cinema",
+        updated_at: timestamp,
+      },
+    });
+
+    await vi.waitFor(() =>
+      expect(onRoomChanged).toHaveBeenCalledWith({
+        room_id: roomId,
+        name: "Saturday cinema",
+        updated_at: timestamp,
+      }),
+    );
+    expect(onReconcile).not.toHaveBeenCalled();
+
+    channel.emit("broadcast", "room_changed", {
+      payload: { room_id: roomId, name: "  invalid  ", updated_at: timestamp },
+    });
+    await vi.waitFor(() =>
+      expect(onReconcile).toHaveBeenCalledWith("malformed_event"),
+    );
+  });
+
   it("re-tracks Presence and exposes one reconciliation after reconnect", async () => {
     const { client, channel } = createClientMock();
     const onReconcile = vi.fn();

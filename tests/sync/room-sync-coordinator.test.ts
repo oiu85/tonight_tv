@@ -457,4 +457,23 @@ describe("room synchronization lifecycle", () => {
     expect(harness.player.playbackRate).toBe(1);
     expect(harness.coordinator.getState().status).toBe("stopped");
   });
+
+  it("exposes a calibrated behind-live number for UI without re-deriving wall time", async () => {
+    const harness = createHarness();
+    await harness.coordinator.start(startOptions);
+
+    expect(harness.coordinator.getBehindSeconds()).toBe(0);
+
+    harness.player.currentTime = 4;
+    expect(harness.coordinator.getBehindSeconds()).toBeGreaterThan(5);
+
+    harness.setSnapshot(makeSnapshot({ status: "paused" }));
+    await harness.channel.getHandlers().onPlaybackState({
+      ...harness.coordinator.getState().canonicalPlayback!,
+      status: "paused",
+      state_version: 2,
+    });
+
+    expect(harness.coordinator.getBehindSeconds()).toBe(0);
+  });
 });
