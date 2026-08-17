@@ -8,7 +8,13 @@ type PublicFunctions = Database["public"]["Functions"];
 export type CreatedRoom = PublicFunctions["create_room"]["Returns"][number];
 export type JoinedRoomSession = PublicFunctions["join_room"]["Returns"][number];
 export type OwnedRoom = Readonly<Database["public"]["Tables"]["rooms"]["Row"]>;
+export type OwnedRoomListItem = Readonly<PublicFunctions["list_owned_rooms"]["Returns"][number]>;
 export type RenamedRoom = PublicFunctions["rename_room"]["Returns"][number];
+export type DeactivatedRoom = PublicFunctions["deactivate_room"]["Returns"][number];
+export type ReactivatedRoom = PublicFunctions["reactivate_room"]["Returns"][number];
+export type DeletedRoom = PublicFunctions["hard_delete_room"]["Returns"][number];
+
+export type RoomStatus = Database["public"]["Enums"]["room_status"];
 
 export type RoomJoinPreview = Readonly<
   Omit<PublicFunctions["get_room_join_preview"]["Returns"][number], "current_title"> & {
@@ -24,6 +30,8 @@ export type RoomSnapshot = Readonly<{
     owner_user_id: string;
     created_at: string;
     updated_at: string;
+    status: RoomStatus;
+    deactivated_at: string | null;
   }>;
   caller: Readonly<{
     user_id: string;
@@ -118,8 +126,11 @@ export class RoomServiceError extends Error {
 
 export type RoomService = Readonly<{
   createRoom: (name: string) => Promise<CreatedRoom>;
-  listOwnedRooms: () => Promise<readonly OwnedRoom[]>;
+  listOwnedRooms: (options?: { includeDeactivated?: boolean }) => Promise<readonly OwnedRoomListItem[]>;
   renameRoom: (roomId: string, name: string) => Promise<RenamedRoom>;
+  deactivateRoom: (roomId: string) => Promise<DeactivatedRoom>;
+  reactivateRoom: (roomId: string) => Promise<ReactivatedRoom>;
+  hardDeleteRoom: (roomId: string) => Promise<DeletedRoom>;
   joinRoom: (roomId: string, displayName: string) => Promise<JoinedRoomSession>;
   getRoomJoinPreview: (roomId: string) => Promise<RoomJoinPreview>;
   fetchSnapshot: (roomId: string, chatLimit?: number) => Promise<RoomSnapshot>;
@@ -201,6 +212,8 @@ function hasSnapshotShape(value: unknown): value is RoomSnapshot {
     typeof room.owner_user_id === "string" &&
     typeof room.created_at === "string" &&
     typeof room.updated_at === "string" &&
+    (room.status === "active" || room.status === "deactivated") &&
+    (room.deactivated_at === null || typeof room.deactivated_at === "string") &&
     isRecord(caller) &&
     typeof caller.user_id === "string" &&
     typeof caller.is_owner === "boolean" &&
@@ -233,24 +246,44 @@ export function createRoomService(client: SupabaseClient<Database>): RoomService
     return firstRow(data, "room creation");
   }
 
-  async function listOwnedRooms(): Promise<readonly OwnedRoom[]> {
-    const { data: authData, error: authError } = await client.auth.getUser();
-    if (authError || !authData.user) {
-      throw new RoomServiceError(
-        "authentication_required",
-        "Authentication is required to load owned rooms.",
-        { cause: authError ?? undefined },
-      );
-    }
-    const { data, error } = await client
-      .from("rooms")
-      .select("*")
-      .eq("owner_user_id", authData.user.id)
-      .order("updated_at", { ascending: false });
+  async function listOwnedRooms(
+    options: { includeDeactivated?: boolean } = {},
+  ): Promise<readonly OwnedRoomListItem[]> {
+    const includeDeactivated = options.includeDeactivated ?? false;
+    const { data, error } = await client.rpc("list_owned_rooms", {
+      p_include_deactivated: includeDeactivated,
+    });
     if (error) {
       throw asRoomServiceError(error, "Unable to load your rooms.");
     }
     return Object.freeze((data ?? []).map((room) => Object.freeze(room)));
+  }
+
+  async function deactivateRoom(roomId: string): Promise<DeactivatedRoom> {
+    validateRoomId(roomId);
+    const { data, error } = await client.rpc("deactivate_room", { p_room_id: roomId });
+    if (error) {
+      throw asRoomServiceError(error, "Unable to deactivate the room.");
+    }
+    return firstRow(data, "room deactivation");
+  }
+
+  async function reactivateRoom(roomId: string): Promise<ReactivatedRoom> {
+    validateRoomId(roomId);
+    const { data, error } = await client.rpc("reactivate_room", { p_room_id: roomId });
+    if (error) {
+      throw asRoomServiceError(error, "Unable to reactivate the room.");
+    }
+    return firstRow(data, "room reactivation");
+  }
+
+  async function hardDeleteRoom(roomId: string): Promise<DeletedRoom> {
+    validateRoomId(roomId);
+    const { data, error } = await client.rpc("hard_delete_room", { p_room_id: roomId });
+    if (error) {
+      throw asRoomServiceError(error, "Unable to delete the room.");
+    }
+    return firstRow(data, "room deletion");
   }
 
   async function renameRoom(roomId: string, name: string): Promise<RenamedRoom> {
@@ -342,6 +375,9 @@ export function createRoomService(client: SupabaseClient<Database>): RoomService
     createRoom,
     listOwnedRooms,
     renameRoom,
+    deactivateRoom,
+    reactivateRoom,
+    hardDeleteRoom,
     joinRoom,
     getRoomJoinPreview,
     fetchSnapshot,

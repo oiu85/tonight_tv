@@ -36,7 +36,6 @@ import {
 import type { CanonicalPlaybackState } from "@/lib/sync/sync-core";
 import {
   fetchTorrentSubtitle,
-  resolveTorrentPlaybackSource,
 } from "@/lib/torrent/torrent-client";
 import type { SubtitleCandidate } from "@/lib/torrent/torrent-manifest";
 import {
@@ -111,6 +110,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
   const toast = useToast();
   const videoRef = useRef<HTMLVideoElement>(null);
   const youtubeMountRef = useRef<HTMLDivElement>(null);
+  const webtorMountRef = useRef<HTMLDivElement>(null);
   const videoStageRef = useRef<HTMLElement>(null);
   const adapterRef = useRef<RoomMediaPlayerAdapter | null>(null);
   const coordinatorRef = useRef<RoomSyncCoordinator | null>(null);
@@ -278,12 +278,14 @@ export function RoomClient({ roomId }: { roomId: string }) {
       phase !== "room" ||
       !identity ||
       !videoRef.current ||
-      !youtubeMountRef.current
+      !youtubeMountRef.current ||
+      !webtorMountRef.current
     ) return;
     const video = videoRef.current;
     const youtubeMount = youtubeMountRef.current;
+    const webtorMount = webtorMountRef.current;
     let disposed = false;
-    const adapter = createRoomMediaPlayerAdapter(video, youtubeMount, {
+    const adapter = createRoomMediaPlayerAdapter(video, youtubeMount, webtorMount, {
         onBufferingChange: (buffering) => {
           void coordinatorRef.current?.handleBufferingChange(buffering);
         },
@@ -458,12 +460,6 @@ export function RoomClient({ roomId }: { roomId: string }) {
     return failures;
   }
 
-  async function prepareTorrentMedia(item: QueueItem | { id: string; source_type: string }) {
-    if (item.source_type === "torrent") {
-      await resolveTorrentPlaybackSource(roomId, item.id);
-    }
-  }
-
   async function submitMedia(
     input: MediaItemInput,
     playNow: boolean,
@@ -481,7 +477,6 @@ export function RoomClient({ roomId }: { roomId: string }) {
         ? await importTorrentSubtitles(item.id, subtitles)
         : 0;
       if (playNow && !editingMedia) {
-        await prepareTorrentMedia(item);
         await getBrowserPlaybackCommandService().selectMedia(
           roomId,
           playback.state_version,
@@ -518,7 +513,6 @@ export function RoomClient({ roomId }: { roomId: string }) {
       await runCommand(
         "select",
         async () => {
-          await prepareTorrentMedia(item);
           return getBrowserPlaybackCommandService().selectMedia(
             roomId,
             playback.state_version,
@@ -541,7 +535,6 @@ export function RoomClient({ roomId }: { roomId: string }) {
         );
         const currentIndex = queue.findIndex((item) => item.id === playback.current_media_id);
         const next = queue[currentIndex + 1];
-        if (next) await prepareTorrentMedia(next);
         return getBrowserPlaybackCommandService().playNext(roomId, playback.state_version);
       },
       "Playing next item",
@@ -841,10 +834,11 @@ export function RoomClient({ roomId }: { roomId: string }) {
         ) : null}
         <div className="tt-room-layout">
           <div className="tt-room-main">
-            <VideoStage
+              <VideoStage
               stageRef={videoStageRef}
               videoRef={videoRef}
-              youtubeMountRef={youtubeMountRef}
+                youtubeMountRef={youtubeMountRef}
+                webtorMountRef={webtorMountRef}
               snapshot={currentSnapshot}
               status={syncState.status}
               mediaError={mediaError}

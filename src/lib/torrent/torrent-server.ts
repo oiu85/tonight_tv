@@ -1,18 +1,33 @@
 import "server-only";
 
 import { WebtorTorrentGateway } from "./webtor-torrent-gateway";
+import { TorrentGatewayError } from "./torrent-contracts";
 
 function requiredServerUrl(name: string): string {
   const value = process.env[name]?.trim();
-  if (!value) throw new Error(`${name} is required for Torrent media.`);
+  if (!value) {
+    throw new TorrentGatewayError(
+      "gateway_unavailable",
+      `Torrent Gateway is not configured. Set ${name} in the server environment, then restart Tonight TV.`,
+      { status: 503 },
+    );
+  }
   let parsed: URL;
   try {
     parsed = new URL(value);
   } catch {
-    throw new Error(`${name} must be a valid URL.`);
+    throw new TorrentGatewayError(
+      "gateway_unavailable",
+      `Torrent Gateway configuration is invalid. ${name} must be an HTTP or HTTPS URL.`,
+      { status: 503 },
+    );
   }
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    throw new Error(`${name} must use HTTP or HTTPS.`);
+    throw new TorrentGatewayError(
+      "gateway_unavailable",
+      `Torrent Gateway configuration is invalid. ${name} must use HTTP or HTTPS.`,
+      { status: 503 },
+    );
   }
   return parsed.toString();
 }

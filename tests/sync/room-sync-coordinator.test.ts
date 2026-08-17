@@ -39,6 +39,8 @@ function makeSnapshot(
       owner_user_id: userId,
       created_at: timestamp,
       updated_at: timestamp,
+      status: "active",
+      deactivated_at: null,
     },
     caller: {
       user_id: userId,

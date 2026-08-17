@@ -197,14 +197,15 @@ describe("media queue service", () => {
     expect(rpc).not.toHaveBeenCalled();
   });
 
-  it("uploads private .torrent metadata before creating the durable source", async () => {
+  it("stores Torrent identity without uploading a .torrent file", async () => {
     const torrentItem: MediaItem = {
       ...item(mediaA, 0),
       source_url: null,
       source_type: "torrent",
       torrent_info_hash: "0123456789abcdef0123456789abcdef01234567",
-      torrent_input_kind: "torrent_file",
-      torrent_metadata_path: `rooms/${roomId}/media/${mediaA}/0123456789abcdef0123456789abcdef01234567.torrent`,
+      torrent_input_kind: "magnet",
+      torrent_magnet_uri: `magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567`,
+      torrent_metadata_path: null,
       torrent_name: "Movie",
       torrent_file_index: 4,
       torrent_file_path: "Movie/Movie.mkv",
@@ -214,17 +215,13 @@ describe("media queue service", () => {
     const { client, rpc, upload } = createClientMock({ data: [torrentItem], error: null });
     const randomUuid = vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValue(mediaA);
     const service = createMediaQueueService(client);
-    const metadata = new File([new Uint8Array([1, 2, 3])], "movie.torrent", {
-      type: "application/x-bittorrent",
-    });
-
     await expect(service.addMedia(roomId, {
       title: "Movie",
       sourceType: "torrent",
       torrent: {
         infoHash: torrentItem.torrent_info_hash!,
-        inputKind: "torrent_file",
-        metadataFile: metadata,
+        inputKind: "magnet",
+        magnetUri: torrentItem.torrent_magnet_uri,
         torrentName: "Movie",
         fileIndex: 4,
         filePath: "Movie/Movie.mkv",
@@ -233,17 +230,13 @@ describe("media queue service", () => {
       },
     })).resolves.toEqual(torrentItem);
 
-    expect(upload).toHaveBeenCalledWith(
-      torrentItem.torrent_metadata_path,
-      metadata,
-      { contentType: "application/x-bittorrent", upsert: false },
-    );
+    expect(upload).not.toHaveBeenCalled();
     expect(rpc).toHaveBeenCalledWith("add_media_item", expect.objectContaining({
       p_media_id: mediaA,
       p_source_type: "torrent",
       p_source_url: undefined,
       p_torrent_info_hash: torrentItem.torrent_info_hash,
-      p_torrent_metadata_path: torrentItem.torrent_metadata_path,
+      p_torrent_metadata_path: undefined,
       p_torrent_file_index: 4,
     }));
     randomUuid.mockRestore();

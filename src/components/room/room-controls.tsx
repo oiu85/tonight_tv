@@ -226,6 +226,7 @@ export function VideoStage({
   stageRef,
   videoRef,
   youtubeMountRef,
+  webtorMountRef,
   snapshot,
   status,
   mediaError,
@@ -249,6 +250,7 @@ export function VideoStage({
   stageRef: RefObject<HTMLElement | null>;
   videoRef: RefObject<HTMLVideoElement | null>;
   youtubeMountRef: RefObject<HTMLDivElement | null>;
+  webtorMountRef?: RefObject<HTMLDivElement | null>;
   snapshot: RoomSnapshot;
   status: RoomSyncStatus;
   mediaError: MediaRuntimeError | null;
@@ -314,6 +316,12 @@ export function VideoStage({
         className="tt-youtube-mount"
         hidden={!youtubeActive}
         aria-label={youtubeActive ? snapshot.current_media?.title : undefined}
+      />
+      <div
+        ref={webtorMountRef}
+        className="tt-webtor-mount"
+        hidden={snapshot.current_media?.source_type !== "torrent"}
+        aria-label={snapshot.current_media?.source_type === "torrent" ? snapshot.current_media.title : undefined}
       />
       <span className="tt-video-label" aria-hidden="true">
         <span className="tt-video-label-dot" />

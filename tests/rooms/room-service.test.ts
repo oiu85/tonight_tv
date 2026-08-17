@@ -33,6 +33,8 @@ function createSnapshot(): RoomSnapshot {
       owner_user_id: userId,
       created_at: timestamp,
       updated_at: timestamp,
+      status: "active",
+      deactivated_at: null,
     },
     caller: {
       user_id: userId,
@@ -94,7 +96,7 @@ describe("Room service", () => {
     });
   });
 
-  it("lists only the authenticated owner's rooms newest first", async () => {
+  it("lists only the authenticated owner's active rooms by default", async () => {
     const rooms = [
       {
         id: roomId,
@@ -102,27 +104,94 @@ describe("Room service", () => {
         name: "Movie night",
         created_at: timestamp,
         updated_at: timestamp,
+        status: "active" as const,
+        deactivated_at: null as string | null,
       },
     ];
-    const order = vi.fn().mockResolvedValue({ data: rooms, error: null });
-    const eq = vi.fn().mockReturnValue({ order });
-    const select = vi.fn().mockReturnValue({ eq });
-    const from = vi.fn().mockReturnValue({ select });
-    const client = {
-      auth: {
-        getUser: vi.fn().mockResolvedValue({
-          data: { user: { id: userId } },
-          error: null,
-        }),
-      },
-      from,
-    } as unknown as SupabaseClient<Database>;
+    const rpc = vi.fn().mockResolvedValue({ data: rooms, error: null });
+    const client = { rpc } as unknown as SupabaseClient<Database>;
 
     await expect(createRoomService(client).listOwnedRooms()).resolves.toEqual(rooms);
-    expect(from).toHaveBeenCalledWith("rooms");
-    expect(select).toHaveBeenCalledWith("*");
-    expect(eq).toHaveBeenCalledWith("owner_user_id", userId);
-    expect(order).toHaveBeenCalledWith("updated_at", { ascending: false });
+    expect(rpc).toHaveBeenCalledWith("list_owned_rooms", {
+      p_include_deactivated: false,
+    });
+  });
+
+  it("forwards the include-deactivated flag when listing rooms", async () => {
+    const rooms = [
+      {
+        id: roomId,
+        owner_user_id: userId,
+        name: "Movie night",
+        created_at: timestamp,
+        updated_at: timestamp,
+        status: "deactivated" as const,
+        deactivated_at: timestamp,
+      },
+    ];
+    const rpc = vi.fn().mockResolvedValue({ data: rooms, error: null });
+    const client = { rpc } as unknown as SupabaseClient<Database>;
+
+    await expect(
+      createRoomService(client).listOwnedRooms({ includeDeactivated: true }),
+    ).resolves.toEqual(rooms);
+    expect(rpc).toHaveBeenCalledWith("list_owned_rooms", {
+      p_include_deactivated: true,
+    });
+  });
+
+  it("deactivates a room through the dedicated owner-only RPC", async () => {
+    const updated = {
+      id: roomId,
+      owner_user_id: userId,
+      name: "Movie night",
+      created_at: timestamp,
+      updated_at: timestamp,
+      status: "deactivated" as const,
+      deactivated_at: timestamp,
+    };
+    const { client, rpc } = createClientMock({ data: [updated], error: null });
+
+    await expect(createRoomService(client).deactivateRoom(roomId)).resolves.toEqual(updated);
+    expect(rpc).toHaveBeenCalledWith("deactivate_room", { p_room_id: roomId });
+  });
+
+  it("reactivates a previously deactivated room", async () => {
+    const updated = {
+      id: roomId,
+      owner_user_id: userId,
+      name: "Movie night",
+      created_at: timestamp,
+      updated_at: timestamp,
+      status: "active" as const,
+      deactivated_at: null as string | null,
+    };
+    const { client, rpc } = createClientMock({ data: [updated], error: null });
+
+    await expect(createRoomService(client).reactivateRoom(roomId)).resolves.toEqual(updated);
+    expect(rpc).toHaveBeenCalledWith("reactivate_room", { p_room_id: roomId });
+  });
+
+  it("hard deletes a room through the dedicated owner-only RPC", async () => {
+    const deleted = { id: roomId };
+    const { client, rpc } = createClientMock({ data: [deleted], error: null });
+
+    await expect(createRoomService(client).hardDeleteRoom(roomId)).resolves.toEqual(deleted);
+    expect(rpc).toHaveBeenCalledWith("hard_delete_room", { p_room_id: roomId });
+  });
+
+  it("rejects malformed room identifiers on every lifecycle call", async () => {
+    const { client } = createClientMock();
+    const service = createRoomService(client);
+    await expect(service.deactivateRoom("not-a-uuid")).rejects.toMatchObject({
+      code: "invalid_input",
+    });
+    await expect(service.reactivateRoom("not-a-uuid")).rejects.toMatchObject({
+      code: "invalid_input",
+    });
+    await expect(service.hardDeleteRoom("not-a-uuid")).rejects.toMatchObject({
+      code: "invalid_input",
+    });
   });
 
   it("normalizes and forwards owner-authorized room renames", async () => {

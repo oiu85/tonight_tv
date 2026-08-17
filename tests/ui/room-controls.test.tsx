@@ -26,6 +26,8 @@ function snapshot(isOwner: boolean): RoomSnapshot {
       owner_user_id: "22222222-2222-4222-8222-222222222222",
       created_at: timestamp,
       updated_at: timestamp,
+      status: "active",
+      deactivated_at: null,
     },
     caller: {
       user_id: "22222222-2222-4222-8222-222222222222",

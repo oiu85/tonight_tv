@@ -68,7 +68,7 @@ describe("Torrent input parsing", () => {
   it("parses legal synthetic metadata with nested and Unicode paths", async () => {
     await expect(parseTorrentFileIdentity(torrentFixture())).resolves.toMatchObject({
       name: "Synthetic Show",
-      magnetUri: null,
+      magnetUri: expect.stringContaining("magnet:?xt=urn:btih:"),
     });
   });
 

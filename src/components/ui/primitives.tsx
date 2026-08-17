@@ -77,9 +77,9 @@ export function Field({
   children,
   htmlFor,
 }: {
-  label: string;
+  label: ReactNode;
   error?: string | null;
-  help?: string;
+  help?: ReactNode;
   children: ReactNode;
   htmlFor?: string;
 }) {

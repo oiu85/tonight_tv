@@ -210,23 +210,29 @@ export type Database = {
       rooms: {
         Row: {
           created_at: string
+          deactivated_at: string | null
           id: string
           name: string
           owner_user_id: string
+          status: Database["public"]["Enums"]["room_status"]
           updated_at: string
         }
         Insert: {
           created_at?: string
+          deactivated_at?: string | null
           id?: string
           name: string
           owner_user_id: string
+          status?: Database["public"]["Enums"]["room_status"]
           updated_at?: string
         }
         Update: {
           created_at?: string
+          deactivated_at?: string | null
           id?: string
           name?: string
           owner_user_id?: string
+          status?: Database["public"]["Enums"]["room_status"]
           updated_at?: string
         }
         Relationships: []
@@ -382,6 +388,46 @@ export type Database = {
           media_id: string
           room_id: string
           storage_path: string
+        }[]
+      }
+      deactivate_room: {
+        Args: { p_room_id: string }
+        Returns: {
+          created_at: string
+          deactivated_at: string | null
+          id: string
+          name: string
+          owner_user_id: string
+          status: Database["public"]["Enums"]["room_status"]
+          updated_at: string
+        }[]
+      }
+      hard_delete_room: {
+        Args: { p_room_id: string }
+        Returns: { id: string }[]
+      }
+      list_owned_rooms: {
+        Args: { p_include_deactivated?: boolean }
+        Returns: {
+          created_at: string
+          deactivated_at: string | null
+          id: string
+          name: string
+          owner_user_id: string
+          status: Database["public"]["Enums"]["room_status"]
+          updated_at: string
+        }[]
+      }
+      reactivate_room: {
+        Args: { p_room_id: string }
+        Returns: {
+          created_at: string
+          deactivated_at: string | null
+          id: string
+          name: string
+          owner_user_id: string
+          status: Database["public"]["Enums"]["room_status"]
+          updated_at: string
         }[]
       }
       edit_media_item: {
@@ -642,6 +688,7 @@ export type Database = {
     Enums: {
       media_source_type: "auto" | "mp4" | "hls" | "youtube" | "torrent"
       playback_status: "idle" | "paused" | "playing" | "ended"
+      room_status: "active" | "deactivated"
       torrent_input_kind: "magnet" | "torrent_file"
     }
     CompositeTypes: {
@@ -772,6 +819,7 @@ export const Constants = {
     Enums: {
       media_source_type: ["auto", "mp4", "hls", "youtube", "torrent"],
       playback_status: ["idle", "paused", "playing", "ended"],
+      room_status: ["active", "deactivated"],
       torrent_input_kind: ["magnet", "torrent_file"],
     },
   },

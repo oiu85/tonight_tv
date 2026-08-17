@@ -1,4 +1,4 @@
-import parseTorrent from "parse-torrent";
+import parseTorrent, { toMagnetURI } from "parse-torrent";
 
 import {
   TORRENT_MANIFEST_MAX_FILES,
@@ -70,7 +70,11 @@ export async function parseTorrentFileIdentity(bytes: Uint8Array): Promise<Parse
         { status: 400 },
       );
     }
-    return Object.freeze({ infoHash, name: parsed.name?.trim() || null, magnetUri: null });
+    return Object.freeze({
+      infoHash,
+      name: parsed.name?.trim() || null,
+      magnetUri: toMagnetURI(parsed),
+    });
   } catch (error) {
     if (error instanceof TorrentGatewayError) throw error;
     throw new TorrentGatewayError("invalid_torrent", "The selected file is not valid torrent metadata.", {

@@ -1,12 +1,23 @@
 "use client";
 
-import { ArrowRight, LogIn, MessageSquare, RadioTower, Users } from "lucide-react";
+import {
+  ArrowRight,
+  Clapperboard,
+  Headphones,
+  KeyRound,
+  MessageSquare,
+  RadioTower,
+  ShieldCheck,
+  Sparkles,
+  Users,
+} from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { getBrowserAuthService } from "@/lib/auth/auth-service";
 import { Brand } from "./brand";
+import { HelpLauncher } from "./help-launcher";
 import { Button, LoadingBlock } from "../ui/primitives";
 
 type AuthState = "loading" | "signed-in" | "signed-out" | "error";
@@ -34,18 +45,22 @@ export function EntryClient() {
       <div className="tt-entry-wrap">
         <section className="tt-entry-hero" aria-labelledby="entry-title">
           <div className="tt-entry-hero-copy">
-            <Brand size="md" />
-            <h1 id="entry-title" className="tt-entry-hero-title">
+            <div className="tt-inline-cluster" style={{ justifyContent: "space-between" }}>
+              <Brand size="md" />
+              <HelpLauncher topic="welcome" label="Open the Tonight TV guide" />
+            </div>
+            <h1 id="entry-title" className="tt-entry-hero-title tt-anim-fade-up">
               Tonight TV
             </h1>
-            <p className="tt-entry-hero-sub" style={{ color: "var(--tt-accent)" }}>
+            <p className="tt-entry-hero-sub tt-anim-fade-up" style={{ animationDelay: "80ms", color: "var(--tt-accent)", fontWeight: 600 }}>
               Watch together. In sync. Every night.
             </p>
-            <p className="tt-entry-hero-sub">
+            <p className="tt-entry-hero-sub tt-anim-fade-up" style={{ animationDelay: "140ms" }}>
               A private watch-room for you and your friends. One timeline.
-              Everyone together.
+              Everyone together. The link is the invite — no accounts, no ads,
+              no algorithms.
             </p>
-            <ul className="tt-entry-hero-pills" aria-label="What Tonight TV includes">
+            <ul className="tt-entry-hero-pills tt-anim-stagger" style={{ animationDelay: "200ms" }} aria-label="What Tonight TV includes">
               <li className="tt-entry-pill">
                 <span className="tt-entry-pill-title">
                   <span className="tt-entry-pill-icon" aria-hidden>
@@ -73,6 +88,33 @@ export function EntryClient() {
                 </span>
                 <span className="tt-entry-pill-body">Side by side</span>
               </li>
+              <li className="tt-entry-pill">
+                <span className="tt-entry-pill-title">
+                  <span className="tt-entry-pill-icon" aria-hidden>
+                    <Clapperboard size={14} />
+                  </span>
+                  Queue
+                </span>
+                <span className="tt-entry-pill-body">Up next built in</span>
+              </li>
+              <li className="tt-entry-pill">
+                <span className="tt-entry-pill-title">
+                  <span className="tt-entry-pill-icon" aria-hidden>
+                    <Headphones size={14} />
+                  </span>
+                  Subtitles
+                </span>
+                <span className="tt-entry-pill-body">Private tracks</span>
+              </li>
+              <li className="tt-entry-pill">
+                <span className="tt-entry-pill-title">
+                  <span className="tt-entry-pill-icon" aria-hidden>
+                    <ShieldCheck size={14} />
+                  </span>
+                  Encrypted
+                </span>
+                <span className="tt-entry-pill-body">Realtime + RLS</span>
+              </li>
             </ul>
           </div>
           <div className="tt-entry-hero-side">
@@ -93,14 +135,16 @@ export function EntryClient() {
                 className="tt-button-wide"
                 onClick={() => router.push("/admin")}
               >
+                <Sparkles size={18} aria-hidden />
                 <span className="tt-button-label">Open Your Rooms</span>
                 <ArrowRight size={18} aria-hidden />
               </Button>
             ) : null}
             {state === "signed-out" ? (
               <Link className="tt-button tt-button-primary tt-button-lg tt-button-wide" href="/login">
-                <LogIn size={18} aria-hidden />
+                <KeyRound size={18} aria-hidden />
                 <span className="tt-button-label">Sign in as Admin</span>
+                <ArrowRight size={18} aria-hidden />
               </Link>
             ) : null}
             <div className="tt-entry-divider">
@@ -114,6 +158,7 @@ export function EntryClient() {
                 <strong>Got a room link?</strong>
                 <span>Viewers can join directly. Ask your admin for the link.</span>
               </span>
+              <ArrowRight size={18} aria-hidden style={{ alignSelf: "center", color: "var(--tt-text-muted)" }} />
             </Link>
             <p className="tt-entry-foot">
               <span className="tt-entry-foot-pulse" aria-hidden>

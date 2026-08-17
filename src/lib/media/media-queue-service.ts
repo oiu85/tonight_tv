@@ -10,6 +10,7 @@ import {
 } from "../playback/playback-command-service";
 import { createBrowserSupabaseClient } from "../supabase/browser";
 import type { Database } from "../supabase/database.types";
+import { parseTorrentFileIdentity } from "../torrent/torrent-manifest";
 
 export type MediaSourceType = Database["public"]["Enums"]["media_source_type"];
 export type MediaItem = Readonly<Database["public"]["Tables"]["media_items"]["Row"]>;
@@ -319,6 +320,27 @@ function mediaRpcArgs(
   };
 }
 
+async function canonicalizeTorrentInput(
+  normalized: NormalizedMediaItemInput,
+): Promise<NormalizedMediaItemInput> {
+  if (normalized.sourceType !== "torrent" || normalized.torrent?.inputKind !== "torrent_file") {
+    return normalized;
+  }
+  const metadataFile = normalized.torrent.metadataFile;
+  if (!metadataFile) throw invalidInput("Choose and inspect a .torrent metadata file first.");
+  const identity = await parseTorrentFileIdentity(new Uint8Array(await metadataFile.arrayBuffer()));
+  if (!identity.magnetUri) throw invalidInput("The .torrent file did not contain enough metadata to build a Magnet URI.");
+  return Object.freeze({
+    ...normalized,
+    torrent: Object.freeze({
+      ...normalized.torrent,
+      inputKind: "magnet" as const,
+      magnetUri: identity.magnetUri,
+      metadataFile: null,
+    }),
+  });
+}
+
 function mapDatabaseError(error: DatabaseError): MediaQueueError {
   switch (error.code) {
     case "42501": {
@@ -448,17 +470,9 @@ export function createMediaQueueService(
 
   async function addMedia(roomId: string, input: MediaItemInput): Promise<MediaItem> {
     validateId(roomId, "Room ID");
-    const normalized = normalizeInput(input);
+    const normalized = await canonicalizeTorrentInput(normalizeInput(input));
     const mediaId = crypto.randomUUID();
-    const metadataPath = normalized.torrent?.inputKind === "torrent_file"
-      ? torrentMetadataPath(roomId, mediaId, normalized.torrent.infoHash)
-      : null;
-    if (metadataPath) {
-      if (!normalized.torrent?.metadataFile) {
-        throw invalidInput("Choose and inspect a .torrent metadata file first.");
-      }
-      await uploadTorrentMetadata(metadataPath, normalized.torrent.metadataFile);
-    }
+    const metadataPath = null;
     if (normalized.torrent?.inputKind === "magnet" && !normalized.torrent.magnetUri) {
       throw invalidInput("Enter and inspect a Magnet URI first.");
     }
@@ -487,7 +501,7 @@ export function createMediaQueueService(
   ): Promise<MediaItem> {
     validateId(roomId, "Room ID");
     validateId(mediaId, "Media ID");
-    const normalized = normalizeInput(input);
+    const normalized = await canonicalizeTorrentInput(normalizeInput(input));
     const existingResult = await client
       .from("media_items")
       .select("torrent_info_hash,torrent_input_kind,torrent_magnet_uri,torrent_metadata_path")
@@ -511,18 +525,8 @@ export function createMediaQueueService(
             }),
           })
         : normalized;
-    const metadataPath = normalized.torrent?.inputKind === "torrent_file"
-      ? torrentMetadataPath(roomId, mediaId, normalized.torrent.infoHash)
-      : null;
-    const shouldUpload = Boolean(
-      metadataPath && normalized.torrent?.metadataFile && metadataPath !== previousPath,
-    );
-    if (metadataPath && !normalized.torrent?.metadataFile && metadataPath !== previousPath) {
-      throw invalidInput("Choose and inspect a .torrent metadata file first.");
-    }
-    if (shouldUpload && metadataPath && normalized.torrent?.metadataFile) {
-      await uploadTorrentMetadata(metadataPath, normalized.torrent.metadataFile);
-    }
+    const metadataPath = null;
+    const shouldUpload = false;
     const { data, error } = await client.rpc(
       "edit_media_item",
       {
@@ -530,9 +534,6 @@ export function createMediaQueueService(
         p_media_id: mediaId,
       },
     );
-    if (error && shouldUpload && metadataPath) {
-      await torrentMetadata().remove([metadataPath]);
-    }
     const item = unwrapSingle(data, error);
     if (previousPath && previousPath !== item.torrent_metadata_path) {
       await removeTorrentMetadata(previousPath);

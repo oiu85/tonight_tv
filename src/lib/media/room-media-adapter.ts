@@ -2,10 +2,6 @@
 
 import type { PlayerCapabilities, PlayerSyncAdapter, SyncMedia } from "../sync/sync-core";
 import {
-  resolveTorrentPlaybackSource,
-  TorrentClientError,
-} from "../torrent/torrent-client";
-import {
   createHtmlMediaPlayerAdapter,
   type HtmlMediaAdapterEvents,
   type HtmlMediaPlayerAdapter,
@@ -16,6 +12,10 @@ import {
   createYouTubeMediaPlayerAdapter,
   type YouTubeMediaPlayerAdapter,
 } from "./youtube-media-adapter";
+import {
+  createWebtorMediaPlayerAdapter,
+  type WebtorMediaPlayerAdapter,
+} from "./webtor-media-adapter";
 
 export type RoomMediaPlayerAdapter = PlayerSyncAdapter &
   Readonly<{
@@ -33,13 +33,13 @@ export type RoomMediaPlayerAdapter = PlayerSyncAdapter &
 export function createRoomMediaPlayerAdapter(
   videoElement: HTMLVideoElement,
   youtubeMount: HTMLElement,
+  webtorMount: HTMLElement,
   events: HtmlMediaAdapterEvents = {},
 ): RoomMediaPlayerAdapter {
   let currentMedia: SyncMedia | null = null;
   let activeTimelineOffsetSec = 0;
   let resolvedDurationSec: number | null = null;
   let loadGeneration = 0;
-  let loadAbort: AbortController | null = null;
   let recoveringTorrent = false;
 
   const html = createHtmlMediaPlayerAdapter(videoElement, {
@@ -84,7 +84,8 @@ export function createRoomMediaPlayerAdapter(
     },
   });
   let youtube: YouTubeMediaPlayerAdapter | null = null;
-  let active: HtmlMediaPlayerAdapter | YouTubeMediaPlayerAdapter = html;
+  let webtor: WebtorMediaPlayerAdapter | null = null;
+  let active: HtmlMediaPlayerAdapter | YouTubeMediaPlayerAdapter | WebtorMediaPlayerAdapter = html;
   let volume = videoElement.volume;
   let muted = videoElement.muted;
   let destroyed = false;
@@ -105,6 +106,20 @@ export function createRoomMediaPlayerAdapter(
     youtubeMount.replaceChildren();
   }
 
+  function createWebtor(): WebtorMediaPlayerAdapter {
+    webtorMount.replaceChildren();
+    const adapter = createWebtorMediaPlayerAdapter({ mount: webtorMount, events });
+    adapter.setVolume(volume);
+    adapter.setMuted(muted);
+    return adapter;
+  }
+
+  function destroyWebtor(): void {
+    webtor?.destroy();
+    webtor = null;
+    webtorMount.replaceChildren();
+  }
+
   async function loadMedia(media: SyncMedia | null): Promise<void> {
     if (destroyed) {
       throw new MediaRuntimeError(
@@ -114,14 +129,13 @@ export function createRoomMediaPlayerAdapter(
     }
 
     const generation = ++loadGeneration;
-    loadAbort?.abort();
-    loadAbort = null;
     currentMedia = media;
     activeTimelineOffsetSec = 0;
     resolvedDurationSec = null;
 
     if (media?.sourceType === "youtube") {
       await html.loadMedia(null);
+      destroyWebtor();
       youtube ??= createYouTube();
       active = youtube;
       await youtube.loadMedia(media);
@@ -129,52 +143,15 @@ export function createRoomMediaPlayerAdapter(
     }
 
     if (media?.sourceType === "torrent") {
-      if (!media.roomId) {
-        throw new MediaRuntimeError(
-          "invalid_torrent",
-          "The room identity required to resolve this Torrent is missing.",
-        );
-      }
-      if (youtube) destroyYouTube();
-      active = html;
+      destroyYouTube();
+      webtor ??= createWebtor();
+      active = webtor;
       await html.loadMedia(null);
-      const abort = new AbortController();
-      loadAbort = abort;
-      try {
-        const resolved = await resolveTorrentPlaybackSource(
-          media.roomId,
-          media.id,
-          abort.signal,
-        );
-        if (destroyed || generation !== loadGeneration || currentMedia !== media) {
-          return;
-        }
-        activeTimelineOffsetSec = resolved.timelineOffsetSec;
-        resolvedDurationSec = resolved.durationSec ?? resolved.probe?.durationSec ?? null;
-        await html.loadMedia({
-          ...media,
-          sourceUrl: resolved.url,
-          sourceType: resolved.kind === "hls" ? "hls" : "mp4",
-        });
-        return;
-      } catch (cause) {
-        if (cause instanceof DOMException && cause.name === "AbortError") return;
-        const error = cause instanceof TorrentClientError
-          ? new MediaRuntimeError(cause.category, cause.message, { cause })
-          : cause instanceof MediaRuntimeError
-            ? cause
-            : new MediaRuntimeError(
-                "gateway_unavailable",
-                "The Torrent Gateway could not prepare this media.",
-                { cause },
-              );
-        events.onError?.(error);
-        throw error;
-      } finally {
-        if (loadAbort === abort) loadAbort = null;
-      }
+      await webtor.loadMedia(media);
+      return;
     }
 
+    destroyWebtor();
     if (youtube) {
       destroyYouTube();
     }
@@ -198,9 +175,8 @@ export function createRoomMediaPlayerAdapter(
     if (destroyed) return;
     destroyed = true;
     loadGeneration += 1;
-    loadAbort?.abort();
-    loadAbort = null;
     destroyYouTube();
+    destroyWebtor();
     html.destroy();
   }
 

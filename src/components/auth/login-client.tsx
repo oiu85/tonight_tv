@@ -1,12 +1,13 @@
 "use client";
 
-import { ArrowLeft, Eye, EyeOff, LogIn, Mail } from "lucide-react";
+import { ArrowLeft, Eye, EyeOff, KeyRound, LogIn, Mail, ShieldCheck, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useEffect, useState } from "react";
 
 import { AuthServiceError, getBrowserAuthService } from "@/lib/auth/auth-service";
 import { Brand } from "../app/brand";
+import { HelpLauncher } from "../app/help-launcher";
 import { Button, Field, Input } from "../ui/primitives";
 
 function safeAuthError(error: unknown): string {
@@ -51,9 +52,12 @@ export function LoginClient() {
     <main className="tt-entry">
       <div className="tt-entry-wrap" style={{ maxWidth: 540 }}>
         <section className="tt-auth-card" aria-labelledby="login-title">
-          <Link href="/" className="tt-join-back" aria-label="Back to Tonight TV">
-            <ArrowLeft size={14} aria-hidden /> Back
-          </Link>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <Link href="/" className="tt-join-back" aria-label="Back to Tonight TV">
+              <ArrowLeft size={14} aria-hidden /> Back
+            </Link>
+            <HelpLauncher topic="admin" label="Open the Tonight TV guide" />
+          </div>
           <div style={{ display: "grid", placeItems: "center", padding: "20px 0 18px" }}>
             <Brand size="md" />
           </div>
@@ -61,7 +65,7 @@ export function LoginClient() {
           <h1 id="login-title" className="tt-title">
             Admin Sign In
           </h1>
-          <p className="tt-secondary">Sign in to access your watch room.</p>
+          <p className="tt-secondary">Sign in to access your watch room and control playback.</p>
           <form className="tt-form" onSubmit={submit} noValidate style={{ marginTop: 16 }}>
             <Field label="Email" htmlFor="login-email">
               <div style={{ position: "relative" }}>
@@ -134,9 +138,19 @@ export function LoginClient() {
             <div className="tt-auth-divider">
               <span>or</span>
             </div>
-            <Link href="/" className="tt-link" style={{ textAlign: "center", fontSize: 13 }}>
-              Not the room owner? Back to Tonight TV
+            <Link
+              href="/"
+              className="tt-button tt-button-ghost tt-button-wide"
+              style={{ textAlign: "center" }}
+            >
+              <Sparkles size={15} aria-hidden />
+              <span className="tt-button-label">Not the room owner? Back to Tonight TV</span>
             </Link>
+            <p className="tt-help" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 8 }}>
+              <ShieldCheck size={13} aria-hidden style={{ color: "var(--tt-live)" }} />
+              <KeyRound size={13} aria-hidden style={{ color: "var(--tt-text-muted)" }} />
+              Your credentials are sent directly to Supabase Auth.
+            </p>
           </form>
         </section>
       </div>

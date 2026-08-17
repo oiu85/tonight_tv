@@ -3,6 +3,7 @@
 import {
   ChevronDown,
   LogOut,
+  PauseCircle,
   Settings,
   Share2,
   Tv2,
@@ -14,6 +15,7 @@ import type { RoomChannelStatus } from "@/lib/realtime/room-channel-service";
 import type { RoomSnapshot } from "@/lib/rooms/room-service";
 import { avatarInitials, avatarToneClass } from "../../lib/room/avatars";
 import { Brand } from "../app/brand";
+import { HelpLauncher } from "../app/help-launcher";
 import { IconButton, StatusBadge } from "../ui/primitives";
 
 type ChannelStatus = RoomChannelStatus | "idle";
@@ -61,6 +63,7 @@ export function RoomTopBar({
   const ownerTone = avatarToneClass(ownerDisplayName);
   const ownerInitials = avatarInitials(ownerDisplayName);
   const [nameOpen] = useState(false);
+  const isDeactivated = room.status === "deactivated";
   return (
     <header className="tt-room-topbar" role="banner">
       <div className="tt-room-topbar-primary">
@@ -69,7 +72,16 @@ export function RoomTopBar({
           {room.name}
           <ChevronDown size={14} aria-hidden className="tt-room-name-chevron" />
         </span>
-        <StatusBadge tone={status.tone}>{status.label}</StatusBadge>
+        {isDeactivated ? (
+          <span
+            className="tt-status-room tt-status-room-deactivated"
+            title="This room is currently deactivated. Reactivate it from the admin workspace."
+          >
+            <PauseCircle size={12} aria-hidden /> Deactivated
+          </span>
+        ) : (
+          <StatusBadge tone={status.tone}>{status.label}</StatusBadge>
+        )}
         <span
           className="tt-topbar-watchers"
           aria-label={`${watcherCount} watching`}
@@ -89,6 +101,7 @@ export function RoomTopBar({
             <Settings size={18} aria-hidden />
           </IconButton>
         ) : null}
+        <HelpLauncher topic={owner ? "admin" : "join"} label="Open the Tonight TV guide" />
         <button
           type="button"
           className="tt-button tt-button-ghost tt-button-sm"
@@ -110,6 +123,15 @@ export function RoomTopBar({
       <span className="tt-visually-hidden">
         <Tv2 size={0} aria-hidden /> {room.name} status {status.label}.
       </span>
+      {isDeactivated ? (
+        <div className="tt-inline-warning" style={{ gridColumn: "1 / -1" }} role="status">
+          <PauseCircle size={14} aria-hidden />
+          <span>
+            This room is currently deactivated. Viewers cannot join until it is
+            reactivated.
+          </span>
+        </div>
+      ) : null}
     </header>
   );
 }

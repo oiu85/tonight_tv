@@ -14,7 +14,7 @@ import {
   Tv2,
   Users,
 } from "lucide-react";
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { memo, type FormEvent, useEffect, useRef, useState } from "react";
 
 import type { ChatMessage } from "../../lib/chat/room-chat-service";
 import { avatarInitials, avatarToneClass } from "../../lib/room/avatars";
@@ -101,6 +101,40 @@ export function PresenceStrip({
   );
 }
 
+const ChatMessageRow = memo(function ChatMessageRow({
+  message,
+  isCurrent,
+}: {
+  message: ChatMessage;
+  isCurrent: boolean;
+}) {
+  return (
+    <article
+      className={`tt-message ${isCurrent ? "tt-message-current" : ""}`}
+      aria-label={`Message from ${message.sender_display_name}`}
+    >
+      <span
+        className={`tt-avatar ${avatarToneClass(message.sender_display_name)}`}
+        aria-hidden
+      >
+        {avatarInitials(message.sender_display_name)}
+      </span>
+      <div>
+        <div className="tt-message-head">
+          <strong>
+            {message.sender_display_name}
+            {isCurrent ? <span className="tt-visually-hidden"> (you)</span> : null}
+          </strong>
+          <time dateTime={message.created_at} className="tt-num">
+            {formatTime(message.created_at)}
+          </time>
+        </div>
+        <p>{message.body}</p>
+      </div>
+    </article>
+  );
+});
+
 export function ChatPanel({
   messages,
   currentUserId,
@@ -116,10 +150,14 @@ export function ChatPanel({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  // Track message count in a ref to avoid re-running the scroll effect when
+  // any unrelated state changes inside the chat (e.g. typing).
+  const messageCountRef = useRef(messages.length);
+  messageCountRef.current = messages.length;
 
   useEffect(() => {
     if (!listRef.current) return;
-    listRef.current.scrollTo({ top: listRef.current.scrollHeight });
+    listRef.current.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
   }, [messages.length]);
 
   async function submit(event: FormEvent) {
@@ -149,35 +187,13 @@ export function ChatPanel({
             <p>Say something to the room.</p>
           </div>
         ) : (
-          messages.map((message) => {
-            const current = message.user_id === currentUserId;
-            return (
-              <article
-                key={message.id}
-                className={`tt-message ${current ? "tt-message-current" : ""}`}
-                aria-label={`Message from ${message.sender_display_name}`}
-              >
-                <span
-                  className={`tt-avatar ${avatarToneClass(message.sender_display_name)}`}
-                  aria-hidden
-                >
-                  {avatarInitials(message.sender_display_name)}
-                </span>
-                <div>
-                  <div className="tt-message-head">
-                    <strong>
-                      {message.sender_display_name}
-                      {current ? <span className="tt-visually-hidden"> (you)</span> : null}
-                    </strong>
-                    <time dateTime={message.created_at} className="tt-num">
-                      {formatTime(message.created_at)}
-                    </time>
-                  </div>
-                  <p>{message.body}</p>
-                </div>
-              </article>
-            );
-          })
+          messages.map((message) => (
+            <ChatMessageRow
+              key={message.id}
+              message={message}
+              isCurrent={message.user_id === currentUserId}
+            />
+          ))
         )}
       </div>
       <form className="tt-chat-composer" onSubmit={submit}>
@@ -217,7 +233,80 @@ export function ChatPanel({
 
 type QueueItem = RoomSnapshot["queue"][number];
 
-export function UpNextPanel({
+const UpNextRow = memo(function UpNextRow({
+  item,
+  isCurrent,
+  label,
+  isFirst,
+  isLast,
+  owner,
+  onEdit,
+  onRemove,
+  onPlayNow,
+  onMove,
+}: {
+  item: QueueItem;
+  isCurrent: boolean;
+  label: string;
+  isFirst: boolean;
+  isLast: boolean;
+  owner: boolean;
+  onEdit: (item: QueueItem) => void;
+  onRemove: (item: QueueItem) => void;
+  onPlayNow: (item: QueueItem) => void;
+  onMove: (item: QueueItem, direction: -1 | 1) => void;
+}) {
+  return (
+    <article className={`tt-queue-row ${isCurrent ? "tt-queue-row-current" : ""}`}>
+      <span className="tt-media-fallback" aria-hidden>
+        <Film size={20} />
+      </span>
+      <div className="tt-queue-copy">
+        <strong title={item.title}>{item.title}</strong>
+        <span>{label}</span>
+      </div>
+      {owner ? (
+        <div className="tt-queue-actions">
+          <IconButton size="sm" variant="ghost" label={`Play ${item.title} now`} onClick={() => onPlayNow(item)}>
+            <Play size={16} aria-hidden />
+          </IconButton>
+          <IconButton
+            size="sm"
+            variant="ghost"
+            label={`Move ${item.title} up`}
+            disabled={isFirst}
+            onClick={() => onMove(item, -1)}
+          >
+            <ChevronUp size={16} aria-hidden />
+          </IconButton>
+          <IconButton
+            size="sm"
+            variant="ghost"
+            label={`Move ${item.title} down`}
+            disabled={isLast}
+            onClick={() => onMove(item, 1)}
+          >
+            <ChevronDown size={16} aria-hidden />
+          </IconButton>
+          <IconButton size="sm" variant="ghost" label={`Edit ${item.title}`} onClick={() => onEdit(item)}>
+            <Pencil size={16} aria-hidden />
+          </IconButton>
+          <IconButton
+            size="sm"
+            variant="ghost"
+            label={`Delete ${item.title}`}
+            disabled={isCurrent}
+            onClick={() => onRemove(item)}
+          >
+            <Trash2 size={16} aria-hidden />
+          </IconButton>
+        </div>
+      ) : null}
+    </article>
+  );
+});
+
+export const UpNextPanel = memo(function UpNextPanel({
   snapshot,
   onAdd,
   onEdit,
@@ -264,67 +353,27 @@ export function UpNextPanel({
             ) : null}
           </div>
         ) : null}
-        {queue.map((item, index) => {
-          const current = item.id === snapshot.playback.current_media_id;
-          const label = current
-            ? "Now playing"
-            : index === 0 && !snapshot.current_media
-              ? "Up next"
-              : `Queue ${index + 1}`;
-          return (
-            <article key={item.id} className={`tt-queue-row ${current ? "tt-queue-row-current" : ""}`}>
-              <span className="tt-media-fallback" aria-hidden>
-                <Film size={20} />
-              </span>
-              <div className="tt-queue-copy">
-                <strong title={item.title}>{item.title}</strong>
-                <span>{label}</span>
-              </div>
-              {owner ? (
-                <div className="tt-queue-actions">
-                  <IconButton
-                    size="sm"
-                    variant="ghost"
-                    label={`Play ${item.title} now`}
-                    onClick={() => onPlayNow(item)}
-                  >
-                    <Play size={16} aria-hidden />
-                  </IconButton>
-                  <IconButton
-                    size="sm"
-                    variant="ghost"
-                    label={`Move ${item.title} up`}
-                    disabled={index === 0}
-                    onClick={() => onMove(item, -1)}
-                  >
-                    <ChevronUp size={16} aria-hidden />
-                  </IconButton>
-                  <IconButton
-                    size="sm"
-                    variant="ghost"
-                    label={`Move ${item.title} down`}
-                    disabled={index === queue.length - 1}
-                    onClick={() => onMove(item, 1)}
-                  >
-                    <ChevronDown size={16} aria-hidden />
-                  </IconButton>
-                  <IconButton size="sm" variant="ghost" label={`Edit ${item.title}`} onClick={() => onEdit(item)}>
-                    <Pencil size={16} aria-hidden />
-                  </IconButton>
-                  <IconButton
-                    size="sm"
-                    variant="ghost"
-                    label={`Delete ${item.title}`}
-                    disabled={current}
-                    onClick={() => onRemove(item)}
-                  >
-                    <Trash2 size={16} aria-hidden />
-                  </IconButton>
-                </div>
-              ) : null}
-            </article>
-          );
-        })}
+        {queue.map((item, index) => (
+          <UpNextRow
+            key={item.id}
+            item={item}
+            isCurrent={item.id === snapshot.playback.current_media_id}
+            label={
+              item.id === snapshot.playback.current_media_id
+                ? "Now playing"
+                : index === 0 && !snapshot.current_media
+                  ? "Up next"
+                  : `Queue ${index + 1}`
+            }
+            isFirst={index === 0}
+            isLast={index === queue.length - 1}
+            owner={owner}
+            onEdit={onEdit}
+            onRemove={onRemove}
+            onPlayNow={onPlayNow}
+            onMove={onMove}
+          />
+        ))}
       </div>
       {owner && snapshot.playback.current_media_id ? (
         <div className="tt-queue-footer">
@@ -336,4 +385,4 @@ export function UpNextPanel({
       ) : null}
     </section>
   );
-}
+});
