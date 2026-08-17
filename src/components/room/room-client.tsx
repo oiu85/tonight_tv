@@ -35,6 +35,7 @@ import {
   isTransientNetworkLike,
   roomUiErrorFromUnknown,
 } from "@/lib/room/domain-errors";
+import { avatarInitials, avatarToneClass } from "@/lib/room/avatars";
 import { Button, LoadingBlock, Tabs, useToast } from "../ui/primitives";
 import { AdminControls, NowPlaying, VideoStage, ViewerControls } from "./room-controls";
 import {
@@ -182,8 +183,6 @@ export function RoomClient({ roomId }: { roomId: string }) {
           const nextSnapshot = await getBrowserRoomService().fetchSnapshot(roomId);
           await adoptSnapshot(nextSnapshot, auth.user.email);
         } catch (error) {
-          // Already a member may or may not exist; the friendly mapper handles the
-          // "you are not a member of this private room" case explicitly.
           const friendly = roomUiErrorFromUnknown(
             error,
             "Tonight TV could not load this room. Check your connection and try again.",
@@ -508,10 +507,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
       await coordinatorRef.current?.goLive();
       toast.push("Subtitle uploaded");
     } catch (error) {
-      const friendly = roomUiErrorFromUnknown(
-        error,
-        "Subtitle upload failed.",
-      );
+      const friendly = roomUiErrorFromUnknown(error, "Subtitle upload failed.");
       setSubtitleError(friendly.message);
     } finally {
       setSubtitleBusy(false);
@@ -530,10 +526,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
       await coordinatorRef.current?.goLive();
       toast.push("Subtitle deleted");
     } catch (error) {
-      const friendly = roomUiErrorFromUnknown(
-        error,
-        "Subtitle deletion failed.",
-      );
+      const friendly = roomUiErrorFromUnknown(error, "Subtitle deletion failed.");
       setSubtitleError(friendly.message);
     } finally {
       setSubtitleBusy(false);
@@ -554,35 +547,24 @@ export function RoomClient({ roomId }: { roomId: string }) {
     setSettingsError(null);
     try {
       const updated = await getBrowserRoomService().renameRoom(roomId, name);
-      // Apply canonical rename without a full snapshot refetch.
       if (currentSnapshot) {
         const next = {
           ...currentSnapshot,
           room: { ...currentSnapshot.room, name: updated.name, updated_at: updated.updated_at },
         };
         setSnapshot(next);
-        // Also update the coordinator-driven snapshot mirror so Realtime and
-        // any future `goLive` will continue to use the canonical name.
         if (coordinatorRef.current) {
-          const merged = (coordinatorRef.current.getState().snapshot ?? next);
+          const merged = coordinatorRef.current.getState().snapshot ?? next;
           const mergedRoom = { ...merged.room, name: updated.name, updated_at: updated.updated_at };
           const mirrored = { ...merged, room: mergedRoom };
-          // Push the canonical room name into the sync state so other listeners
-          // (top bar, page title) pick it up immediately.
-          syncStateRef.current = {
-            ...syncStateRef.current,
-            snapshot: mirrored,
-          };
+          syncStateRef.current = { ...syncStateRef.current, snapshot: mirrored };
           setSyncState(syncStateRef.current);
         }
       }
       toast.push("Room name updated");
       setSettingsOpen(false);
     } catch (error) {
-      const friendly = roomUiErrorFromUnknown(
-        error,
-        "Tonight TV could not rename the room right now.",
-      );
+      const friendly = roomUiErrorFromUnknown(error, "Tonight TV could not rename the room right now.");
       setSettingsError(friendly.message);
     } finally {
       setSettingsBusy(false);
@@ -626,6 +608,28 @@ export function RoomClient({ roomId }: { roomId: string }) {
     }
   }
 
+  async function localPlayPause() {
+    const video = videoRef.current;
+    if (!video) return;
+    if (video.paused) {
+      try {
+        await video.play();
+      } catch {
+        /* surfaced by adapter */
+      }
+    } else {
+      video.pause();
+    }
+  }
+
+  function toggleMute() {
+    setMuted((value) => !value);
+  }
+
+  function toggleCaptions() {
+    setSelectedSubtitleId((current) => (current ? null : current ?? current));
+  }
+
   // ----- pre-membership view -----
   if (phase === "preview") {
     if (previewStatus === "loading") return <RoomJoinLoading />;
@@ -665,18 +669,22 @@ export function RoomClient({ roomId }: { roomId: string }) {
   const fullscreenAvailable = typeof document !== "undefined" && !!document.fullscreenEnabled;
   const channelNotice = !connected && syncState.channelStatus !== "idle";
   const transientLike = syncState.error && isTransientNetworkLike(syncState.error);
+  const ownerDisplayName = currentSnapshot.caller.display_name || displayNameForOwner();
+  const ownerTone = avatarToneClass(ownerDisplayName);
 
   return (
     <main className="tt-app">
-      <div className="tt-shell tt-room-shell">
+      <div className="tt-shell tt-shell-room tt-room-shell">
         <RoomTopBar
           room={currentSnapshot.room}
           channelStatus={syncState.channelStatus}
           watcherCount={watchersCount}
           owner={owner}
+          ownerDisplayName={ownerDisplayName}
           onShare={() => void copyRoomLink()}
           onOpenSettings={() => setSettingsOpen(true)}
           onLeave={() => void signOut()}
+          onOpenAccountMenu={() => void signOut()}
         />
         {channelNotice ? (
           <div
@@ -715,9 +723,21 @@ export function RoomClient({ roomId }: { roomId: string }) {
               status={syncState.status}
               mediaError={mediaError}
               reason={syncState.reason}
+              ownerPlaying={currentSnapshot.playback.status === "playing"}
+              currentTime={currentTime}
+              duration={duration}
               onStartWatching={() => void startWatching()}
               onRetry={() => void coordinatorRef.current?.goLive()}
               onReconnect={() => void coordinatorRef.current?.goLive()}
+              onPlayPause={() => void localPlayPause()}
+              onMuteToggle={toggleMute}
+              muted={muted}
+              onCaptionsToggle={toggleCaptions}
+              captionsActive={Boolean(selectedSubtitleId)}
+              onPipToggle={() => void pictureInPicture()}
+              onFullscreenToggle={() => void fullscreen()}
+              pipAvailable={pipAvailable}
+              fullscreenAvailable={fullscreenAvailable}
               onAddMedia={
                 owner
                   ? () => {
@@ -733,6 +753,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
               currentTime={currentTime}
               duration={duration}
               behindSeconds={displayedBehindSeconds}
+              isOwner={owner}
             />
             {owner ? (
               <AdminControls
@@ -827,6 +848,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
             <PresenceStrip
               watchers={syncState.watchers}
               ownerUserId={currentSnapshot.room.owner_user_id}
+              currentUserId={identity.userId}
             />
           </div>
           <aside className="tt-sidebar" aria-label="Room conversation and queue">
@@ -875,6 +897,36 @@ export function RoomClient({ roomId }: { roomId: string }) {
               )}
             </div>
           </aside>
+        </div>
+        <div className="tt-room-footer" aria-label="Room metadata">
+          <span className="tt-room-footer-meta">
+            Room ID: <code style={{ color: "var(--tt-text-secondary)" }}>{currentSnapshot.room.id.slice(0, 8)}</code>
+          </span>
+          <span className="tt-room-footer-meta" style={{ color: "var(--tt-live)" }}>
+            <span className="tt-status-dot tt-dot-live" /> Private room
+          </span>
+          <span className="tt-room-footer-spacer" />
+          {displayedBehindSeconds >= 2 ? (
+            <span className="tt-room-footer-meta" style={{ color: "var(--tt-warning)" }}>
+              Behind live? <button
+                className="tt-link tt-room-footer-link"
+                type="button"
+                onClick={() => void coordinatorRef.current?.goLive()}
+                style={{ background: "transparent", border: 0, cursor: "pointer" }}
+              >
+                Go live
+              </button> to catch up or refresh.
+            </span>
+          ) : null}
+          <span className="tt-room-footer-meta">
+            <span className="tt-status-dot tt-dot-live" /> {connected ? "Connected" : "Reconnecting…"}
+          </span>
+          <span className="tt-room-footer-meta">
+            <span className={`tt-avatar ${ownerTone}`} style={{ width: 24, height: 24, fontSize: 10 }} aria-hidden>
+              {avatarInitials(ownerDisplayName)}
+            </span>
+            {owner ? "Admin present" : "Viewer"}
+          </span>
         </div>
         <MediaDialog
           open={mediaDialogOpen}

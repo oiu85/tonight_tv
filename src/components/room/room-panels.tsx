@@ -3,6 +3,7 @@
 import {
   ChevronDown,
   ChevronUp,
+  ChevronRight,
   Crown,
   Film,
   Pencil,
@@ -11,25 +12,16 @@ import {
   Send,
   Trash2,
   Tv2,
+  Users,
 } from "lucide-react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 
 import type { ChatMessage } from "../../lib/chat/room-chat-service";
+import { avatarInitials, avatarToneClass } from "../../lib/room/avatars";
 import { roomUiErrorFromUnknown } from "../../lib/room/domain-errors";
 import type { RoomWatcher } from "../../lib/realtime/room-channel-service";
 import type { RoomSnapshot } from "../../lib/rooms/room-service";
 import { Button, IconButton } from "../ui/primitives";
-
-function initials(name: string): string {
-  const parts = name.split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  return (
-    parts
-      .slice(0, 2)
-      .map((p) => p[0]?.toUpperCase() ?? "")
-      .join("") || "?"
-  );
-}
 
 function formatTime(iso: string): string {
   try {
@@ -44,40 +36,65 @@ function formatTime(iso: string): string {
 export function PresenceStrip({
   watchers,
   ownerUserId,
+  currentUserId,
 }: {
   watchers: readonly RoomWatcher[];
   ownerUserId: string;
+  currentUserId?: string;
 }) {
-  const shown = watchers.slice(0, 5);
-  const overflow = Math.max(0, watchers.length - shown.length);
+  const sorted = [...watchers].sort((a, b) => a.user_id.localeCompare(b.user_id));
+  const shown = sorted.slice(0, 6);
+  const overflow = Math.max(0, sorted.length - shown.length);
   return (
-    <section className="tt-presence-strip" aria-label={`${watchers.length} watching`}>
-      <div className="tt-inline-cluster" style={{ gap: 8 }}>
-        <strong className="tt-num">{watchers.length}</strong>
-        <span className="tt-secondary">watching</span>
-        {watchers.some((w) => w.user_id === ownerUserId) ? (
-          <span className="tt-inline-cluster" style={{ gap: 4, color: "var(--tt-warning)", fontSize: 12, fontWeight: 700 }}>
-            <Crown size={13} aria-hidden /> owner
+    <section className="tt-presence-strip" aria-label={`${sorted.length} watching`}>
+      <div className="tt-presence-meta">
+        <span className="tt-presence-strip-kicker">Who&apos;s watching</span>
+        <span className="tt-secondary" style={{ fontSize: 12 }}>
+          <Users size={12} aria-hidden style={{ marginRight: 4, verticalAlign: -1 }} />
+          <strong>{sorted.length}</strong> {sorted.length === 1 ? "person" : "people"}
+        </span>
+        {sorted.some((w) => w.user_id === ownerUserId) ? (
+          <span
+            className="tt-status tt-status-warning"
+            style={{ transform: "scale(.92)", transformOrigin: "left center" }}
+          >
+            Owner online
           </span>
         ) : null}
       </div>
-      <div className="tt-avatar-stack" aria-label="People watching">
-        {shown.map((watcher) => (
-          <span
-            key={watcher.user_id}
-            title={watcher.display_name}
-            aria-label={watcher.display_name}
-            className={`tt-avatar tt-avatar-online ${
-              watcher.user_id === ownerUserId ? "tt-avatar-owner" : ""
-            }`}
-          >
-            {watcher.user_id === ownerUserId ? <Crown size={14} aria-hidden /> : initials(watcher.display_name)}
-          </span>
-        ))}
+      <div className="tt-presence-avatar-row" aria-label="People watching">
+        {shown.map((watcher) => {
+          const tone = avatarToneClass(watcher.display_name);
+          const initials = avatarInitials(watcher.display_name);
+          const isOwner = watcher.user_id === ownerUserId;
+          const isYou = currentUserId !== undefined && watcher.user_id === currentUserId;
+          return (
+            <div className="tt-presence-name" key={watcher.user_id}>
+              <span
+                className={`tt-avatar tt-avatar-online ${tone} ${isOwner ? "tt-avatar-owner" : ""}`}
+                title={watcher.display_name}
+                aria-label={watcher.display_name}
+              >
+                {isOwner ? <Crown size={14} aria-hidden /> : initials}
+              </span>
+              <span className="tt-presence-name-label">
+                {isYou ? (
+                  <strong>You</strong>
+                ) : (
+                  watcher.display_name
+                )}
+                {isOwner ? " (Admin)" : ""}
+              </span>
+            </div>
+          );
+        })}
         {overflow > 0 ? (
-          <span className="tt-avatar" aria-label={`${overflow} more`}>
-            +{overflow}
-          </span>
+          <div className="tt-presence-name">
+            <span className="tt-avatar tt-avatar-overflow" aria-label={`${overflow} more`}>
+              +{overflow}
+            </span>
+            <span className="tt-presence-name-label">+{overflow} more</span>
+          </div>
         ) : null}
       </div>
     </section>
@@ -140,8 +157,11 @@ export function ChatPanel({
                 className={`tt-message ${current ? "tt-message-current" : ""}`}
                 aria-label={`Message from ${message.sender_display_name}`}
               >
-                <span className="tt-avatar" aria-hidden>
-                  {initials(message.sender_display_name)}
+                <span
+                  className={`tt-avatar ${avatarToneClass(message.sender_display_name)}`}
+                  aria-hidden
+                >
+                  {avatarInitials(message.sender_display_name)}
                 </span>
                 <div>
                   <div className="tt-message-head">
@@ -169,14 +189,20 @@ export function ChatPanel({
             id="room-message"
             className="tt-input"
             maxLength={1000}
-            placeholder={connected ? "Message everyone…" : "Reconnecting…"}
+            placeholder={connected ? "Type a message…" : "Reconnecting…"}
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             disabled={!connected}
           />
-          <Button type="submit" variant="primary" loading={sending} disabled={!connected || !draft.trim()}>
+          <Button
+            type="submit"
+            variant="primary"
+            className="tt-chat-send"
+            loading={sending}
+            disabled={!connected || !draft.trim()}
+            aria-label="Send message"
+          >
             <Send size={17} aria-hidden />
-            <span className="tt-button-label">Send</span>
           </Button>
         </div>
         {error ? (
@@ -213,7 +239,7 @@ export function UpNextPanel({
       <div className="tt-queue-toolbar">
         <div>
           <p className="tt-kicker">Up Next</p>
-          <span className="tt-muted">
+          <span className="tt-secondary" style={{ fontSize: 12 }}>
             {queue.length} {queue.length === 1 ? "program" : "programs"}
           </span>
         </div>
@@ -224,31 +250,31 @@ export function UpNextPanel({
           </Button>
         ) : null}
       </div>
-      {queue.length === 0 ? (
-        <div className="tt-empty-block">
-          <Tv2 size={28} aria-hidden />
-          <p className="tt-empty-block-eyebrow">Queue</p>
-          <h3 className="tt-section-title">Nothing queued yet.</h3>
-          {owner ? (
-            <Button variant="primary" onClick={onAdd}>
-              <Plus size={16} aria-hidden />
-              <span className="tt-button-label">Add Media</span>
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
       <div className="tt-queue-list">
+        {queue.length === 0 ? (
+          <div className="tt-empty-block">
+            <Tv2 size={28} aria-hidden />
+            <p className="tt-empty-block-eyebrow">Queue</p>
+            <h3 className="tt-section-title">Nothing queued yet.</h3>
+            {owner ? (
+              <Button variant="primary" onClick={onAdd}>
+                <Plus size={16} aria-hidden />
+                <span className="tt-button-label">Add Media</span>
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
         {queue.map((item, index) => {
           const current = item.id === snapshot.playback.current_media_id;
           const label = current
             ? "Now playing"
             : index === 0 && !snapshot.current_media
-              ? "First in queue"
+              ? "Up next"
               : `Queue ${index + 1}`;
           return (
             <article key={item.id} className={`tt-queue-row ${current ? "tt-queue-row-current" : ""}`}>
               <span className="tt-media-fallback" aria-hidden>
-                <Film size={18} />
+                <Film size={20} />
               </span>
               <div className="tt-queue-copy">
                 <strong title={item.title}>{item.title}</strong>
@@ -256,7 +282,12 @@ export function UpNextPanel({
               </div>
               {owner ? (
                 <div className="tt-queue-actions">
-                  <IconButton size="sm" variant="ghost" label={`Play ${item.title} now`} onClick={() => onPlayNow(item)}>
+                  <IconButton
+                    size="sm"
+                    variant="ghost"
+                    label={`Play ${item.title} now`}
+                    onClick={() => onPlayNow(item)}
+                  >
                     <Play size={16} aria-hidden />
                   </IconButton>
                   <IconButton
@@ -296,9 +327,12 @@ export function UpNextPanel({
         })}
       </div>
       {owner && snapshot.playback.current_media_id ? (
-        <p className="tt-help" style={{ marginTop: 8 }}>
-          The current item cannot be deleted. Play another item first.
-        </p>
+        <div className="tt-queue-footer">
+          <p className="tt-help" style={{ margin: 0, textAlign: "center" }}>
+            The current item can&apos;t be deleted. Play another item first
+            <ChevronRight size={12} style={{ verticalAlign: -1, marginLeft: 4 }} aria-hidden />
+          </p>
+        </div>
       ) : null}
     </section>
   );

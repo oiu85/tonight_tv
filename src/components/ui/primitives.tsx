@@ -25,8 +25,8 @@ export function cx(...classes: Array<string | false | null | undefined>): string
 }
 
 export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: "primary" | "secondary" | "ghost" | "danger";
-  size?: "default" | "sm";
+  variant?: "primary" | "secondary" | "ghost" | "danger" | "soft";
+  size?: "default" | "sm" | "lg";
   loading?: boolean;
   label?: string;
 };
@@ -43,7 +43,9 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
         variant === "primary" && "tt-button-primary",
         variant === "ghost" && "tt-button-ghost",
         variant === "danger" && "tt-button-danger",
+        variant === "soft" && "tt-button-soft",
         size === "sm" && "tt-button-sm",
+        size === "lg" && "tt-button-lg",
         className,
       )}
       disabled={disabled || loading}
@@ -102,7 +104,7 @@ export function StatusBadge({
   tone = "neutral",
   children,
 }: {
-  tone?: "live" | "warning" | "danger" | "neutral";
+  tone?: "live" | "warning" | "danger" | "neutral" | "accent";
   children: ReactNode;
 }) {
   return (

@@ -18,3 +18,7 @@
 Thumbs.db
 *.tsbuildinfo
 next-env.d.ts
+
+# vitest
+/vitest.config.legacy.ts
+/.gitignore-info.txt

@@ -65,6 +65,25 @@ const localProps = {
   fullscreenAvailable: true,
 };
 
+const videoStageCommon = {
+  ownerPlaying: true,
+  currentTime: 42,
+  duration: 120,
+  onStartWatching: vi.fn(),
+  onRetry: vi.fn(),
+  onReconnect: vi.fn(),
+  onPlayPause: vi.fn(),
+  onMuteToggle: vi.fn(),
+  muted: false,
+  onCaptionsToggle: vi.fn(),
+  captionsActive: false,
+  onPipToggle: vi.fn(),
+  onFullscreenToggle: vi.fn(),
+  pipAvailable: true,
+  fullscreenAvailable: true,
+  reason: null,
+};
+
 describe("Room playback surfaces", () => {
   it("never enables native browser video controls", () => {
     const markup = renderToStaticMarkup(
@@ -73,9 +92,7 @@ describe("Room playback surfaces", () => {
         snapshot={snapshot(false)}
         status="live"
         mediaError={null}
-        onStartWatching={vi.fn()}
-        onRetry={vi.fn()}
-        onReconnect={vi.fn()}
+        {...videoStageCommon}
       />,
     );
 

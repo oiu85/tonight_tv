@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, LogIn } from "lucide-react";
+import { ArrowLeft, Eye, EyeOff, LogIn, Mail } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useEffect, useState } from "react";
@@ -19,6 +19,7 @@ export function LoginClient() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -26,7 +27,8 @@ export function LoginClient() {
     getBrowserAuthService()
       .getCurrentAuth()
       .then((auth) => {
-        if (auth.status === "authenticated" && !auth.user.is_anonymous) router.replace("/admin");
+        if (auth.status === "authenticated" && !auth.user.is_anonymous)
+          router.replace("/admin");
       })
       .catch(() => undefined);
   }, [router]);
@@ -47,49 +49,97 @@ export function LoginClient() {
 
   return (
     <main className="tt-entry">
-      <section className="tt-auth-card tt-card" aria-labelledby="login-title">
-        <Link href="/" className="tt-button tt-button-ghost tt-button-sm">
-          <ArrowLeft size={17} aria-hidden />
-          <span className="tt-button-label">Back</span>
-        </Link>
-        <div style={{ height: 24 }} />
-        <Brand />
-        <div style={{ height: 24 }} />
-        <p className="tt-kicker">Room operator</p>
-        <h1 id="login-title" className="tt-title">Sign in</h1>
-        <p className="tt-secondary">Use the owner account that manages your private rooms.</p>
-        <form className="tt-form" onSubmit={submit} noValidate>
-          <Field label="Email" htmlFor="login-email">
-            <Input
-              id="login-email"
-              type="email"
-              autoComplete="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              required
-            />
-          </Field>
-          <Field label="Password" htmlFor="login-password">
-            <Input
-              id="login-password"
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              required
-            />
-          </Field>
-          {error ? (
-            <div className="tt-inline-error" role="alert" aria-live="assertive">
-              {error}
+      <div className="tt-entry-wrap" style={{ maxWidth: 540 }}>
+        <section className="tt-auth-card" aria-labelledby="login-title">
+          <Link href="/" className="tt-join-back" aria-label="Back to Tonight TV">
+            <ArrowLeft size={14} aria-hidden /> Back
+          </Link>
+          <div style={{ display: "grid", placeItems: "center", padding: "20px 0 18px" }}>
+            <Brand size="md" />
+          </div>
+          <p className="tt-kicker">Room operator</p>
+          <h1 id="login-title" className="tt-title">
+            Admin Sign In
+          </h1>
+          <p className="tt-secondary">Sign in to access your watch room.</p>
+          <form className="tt-form" onSubmit={submit} noValidate style={{ marginTop: 16 }}>
+            <Field label="Email" htmlFor="login-email">
+              <div style={{ position: "relative" }}>
+                <Mail
+                  size={15}
+                  aria-hidden
+                  style={{
+                    position: "absolute",
+                    left: 14,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    color: "var(--tt-text-muted)",
+                  }}
+                />
+                <Input
+                  id="login-email"
+                  type="email"
+                  autoComplete="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="you@example.com"
+                  style={{ paddingLeft: 38 }}
+                  required
+                />
+              </div>
+            </Field>
+            <Field label="Password" htmlFor="login-password">
+              <div style={{ position: "relative" }}>
+                <Input
+                  id="login-password"
+                  type={showPassword ? "text" : "password"}
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="Enter your password"
+                  style={{ paddingRight: 44 }}
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((value) => !value)}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  style={{
+                    position: "absolute",
+                    right: 8,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    background: "transparent",
+                    color: "var(--tt-text-muted)",
+                    width: 32,
+                    height: 32,
+                    display: "grid",
+                    placeItems: "center",
+                    borderRadius: 8,
+                  }}
+                >
+                  {showPassword ? <EyeOff size={16} aria-hidden /> : <Eye size={16} aria-hidden />}
+                </button>
+              </div>
+            </Field>
+            {error ? (
+              <div className="tt-inline-error" role="alert" aria-live="assertive">
+                {error}
+              </div>
+            ) : null}
+            <Button type="submit" variant="primary" size="lg" className="tt-button-wide" loading={submitting}>
+              <LogIn size={18} aria-hidden />
+              <span className="tt-button-label">Sign In</span>
+            </Button>
+            <div className="tt-auth-divider">
+              <span>or</span>
             </div>
-          ) : null}
-          <Button type="submit" variant="primary" className="tt-button-wide" loading={submitting}>
-            <LogIn size={18} aria-hidden />
-            <span className="tt-button-label">Sign In</span>
-          </Button>
-        </form>
-      </section>
+            <Link href="/" className="tt-link" style={{ textAlign: "center", fontSize: 13 }}>
+              Not the room owner? Back to Tonight TV
+            </Link>
+          </form>
+        </section>
+      </div>
     </main>
   );
 }
