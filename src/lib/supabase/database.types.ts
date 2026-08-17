@@ -281,6 +281,40 @@ export type Database = {
           updated_at: string
         }[]
       }
+      create_subtitle_metadata: {
+        Args: {
+          p_label: string
+          p_language_code?: string
+          p_media_id: string
+          p_room_id: string
+          p_subtitle_id: string
+        }
+        Returns: {
+          created_at: string
+          created_by: string
+          format: string
+          id: string
+          label: string
+          language_code: string
+          media_id: string
+          room_id: string
+          storage_path: string
+        }[]
+      }
+      delete_subtitle_metadata: {
+        Args: { p_room_id: string; p_subtitle_id: string }
+        Returns: {
+          created_at: string
+          created_by: string
+          format: string
+          id: string
+          label: string
+          language_code: string
+          media_id: string
+          room_id: string
+          storage_path: string
+        }[]
+      }
       edit_media_item: {
         Args: {
           p_media_id: string
