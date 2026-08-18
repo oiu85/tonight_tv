@@ -111,7 +111,7 @@ export function createLocalP2pRuntime(dependencies: LocalP2pRuntimeDependencies 
       try {
         const [WebTorrentClass, registration] = await Promise.all([loadWebTorrent(), registerServiceWorker()]);
         if (destroyed) return;
-        client = new WebTorrentClass({ tracker: { announce: LOCAL_P2P_TRACKERS }, dht: false, lsd: false, utPex: false });
+        client = new WebTorrentClass({ tracker: { announce: LOCAL_P2P_TRACKERS }, dht: false, lsd: true, utPex: true });
         client.createServer({ controller: registration });
         metricsTimer = setInterval(() => {
           const torrent = state.infoHash ? torrents.get(state.infoHash) : null;
@@ -132,7 +132,7 @@ export function createLocalP2pRuntime(dependencies: LocalP2pRuntimeDependencies 
     publish({ ...IDLE_STATE, status: "hashing" });
     return new Promise((resolve, reject) => {
       try {
-        const torrent = client!.seed(file, { announce: LOCAL_P2P_TRACKERS, private: true, dht: false, lsd: false, utPex: false, destroyStoreOnDestroy: true, name: file.name }, (seeded) => {
+        const torrent = client!.seed(file, { announce: LOCAL_P2P_TRACKERS, private: true, dht: false, lsd: true, utPex: true, destroyStoreOnDestroy: true, name: file.name }, (seeded) => {
           const infoHash = seeded.infoHash.toLowerCase();
           localSeeds.add(infoHash);
           track(seeded); publish({ ...IDLE_STATE, status: "seeding", infoHash });
@@ -162,7 +162,7 @@ export function createLocalP2pRuntime(dependencies: LocalP2pRuntimeDependencies 
         finish(() => reject(error));
       }, LOCAL_P2P_JOIN_TIMEOUT_MS);
       try {
-        const torrent = client!.add(descriptor.magnetUri, { announce: LOCAL_P2P_TRACKERS, private: true, dht: false, lsd: false, utPex: false, destroyStoreOnDestroy: true }, (joined) => {
+        const torrent = client!.add(descriptor.magnetUri, { announce: LOCAL_P2P_TRACKERS, private: true, dht: false, lsd: true, utPex: true, destroyStoreOnDestroy: true }, (joined) => {
           if (settled) return;
           const file = joined.files.find((candidate) => candidate.name === descriptor.fileName) ?? joined.files[0];
           if (!file || file.length !== descriptor.fileSize) { const error = new LocalP2pError("p2p_invalid_descriptor", "The P2P source did not contain the expected video file."); void removeTorrent(client!, joined).finally(() => finish(() => reject(error))); return; }
@@ -182,7 +182,20 @@ export function createLocalP2pRuntime(dependencies: LocalP2pRuntimeDependencies 
     joinPromises.set(descriptor.infoHash, pendingJoin);
     return pendingJoin;
   }
-  async function attachToMediaElement(descriptor: LocalP2pDescriptor, element: HTMLMediaElement): Promise<void> { const file = await joinLocalStream(descriptor); try { file.streamTo(element); } catch (cause) { const error = new LocalP2pError("p2p_stream_failed", "The P2P video stream could not be attached to the player.", { cause }); publishError(error); throw error; } }
+  async function attachToMediaElement(descriptor: LocalP2pDescriptor, element: HTMLMediaElement): Promise<void> {
+    const file = await joinLocalStream(descriptor);
+    try {
+      if (file.streamURL) {
+        element.src = file.streamURL;
+        return;
+      }
+      file.streamTo(element);
+    } catch (cause) {
+      const error = new LocalP2pError("p2p_stream_failed", "The P2P video stream could not be attached to the player.", { cause });
+      publishError(error);
+      throw error;
+    }
+  }
   async function leaveLocalStream(infoHash: string): Promise<void> { const normalized = infoHash.toLowerCase(); const timer = noPeerTimers.get(normalized); if (timer !== undefined) clearTimeout(timer); noPeerTimers.delete(normalized); joinPromises.delete(normalized); const torrent = torrents.get(normalized); if (!torrent || !client) return; torrents.delete(normalized); localSeeds.delete(normalized); await removeTorrent(client, torrent); publish({ ...IDLE_STATE, status: "stopped" }); }
   async function destroy(): Promise<void> { if (destroyed) return; destroyed = true; if (metricsTimer !== null) clearInterval(metricsTimer); metricsTimer = null; for (const timer of noPeerTimers.values()) clearTimeout(timer); noPeerTimers.clear(); joinPromises.clear(); torrents.clear(); localSeeds.clear(); const activeClient = client; client = null; if (activeClient && !activeClient.destroyed) await new Promise<void>((resolve, reject) => activeClient.destroy((error) => error ? reject(error) : resolve())); publish({ ...IDLE_STATE, status: "stopped" }); listeners.clear(); }
   return Object.freeze({ initialize, seedLocalFile, joinLocalStream, attachToMediaElement, leaveLocalStream, hasLocalSeed: (infoHash: string) => localSeeds.has(infoHash.toLowerCase()), getState: () => state, subscribe: (listener: StateListener) => { listeners.add(listener); listener(state); return () => listeners.delete(listener); }, destroy });

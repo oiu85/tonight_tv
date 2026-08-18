@@ -170,16 +170,13 @@ export function createLocalP2pMediaPlayerAdapter(
         );
       }
       infoHash = descriptor.infoHash;
-      void runtime.attachToMediaElement(descriptor, media).then(() => {
-        if (destroyed || loadGeneration !== generation) return;
-        media.load();
-        ready = media.readyState >= HAVE_METADATA;
-        settleReady();
-      }).catch((cause) => {
-        if (destroyed || loadGeneration !== generation) return;
-        report(mapP2pError(cause));
-      });
+      await runtime.attachToMediaElement(descriptor, media);
+      if (destroyed || loadGeneration !== generation) return;
+      media.load();
+      ready = media.readyState >= HAVE_METADATA;
+      settleReady();
     } catch (cause) {
+      if (destroyed || loadGeneration !== generation) return;
       const error = mapP2pError(cause);
       report(error);
       throw error;

@@ -154,6 +154,7 @@ function snapshotMedia(snapshot: RoomSnapshot): SyncMedia | null {
       torrentInfoHash: media.torrent_info_hash,
       torrentFileIndex: media.torrent_file_index,
       torrentFilePath: media.torrent_file_path,
+      torrentMagnetUri: media.torrent_magnet_uri,
       }
     : null;
 }
@@ -206,13 +207,19 @@ export function createRoomSyncCoordinator(
         player.waitUntilReady(),
         new Promise<never>((_, reject) => {
           timeoutId = setTimeout(() => {
-            reject(new RoomSyncError(
-              "player_operation_failed",
+            reject(new MediaRuntimeError(
+              "unknown_media_error",
               "The media player did not become ready within 30 seconds.",
             ));
           }, mediaReadyTimeoutMs);
         }),
       ]);
+    } catch (cause) {
+      if (cause instanceof MediaRuntimeError) {
+        handleMediaError(cause);
+        return;
+      }
+      throw cause;
     } finally {
       if (timeoutId !== null) clearTimeout(timeoutId);
     }
@@ -602,6 +609,7 @@ export function createRoomSyncCoordinator(
       loadedMedia.torrentInfoHash !== media.torrentInfoHash ||
       loadedMedia.torrentFileIndex !== media.torrentFileIndex ||
       loadedMedia.torrentFilePath !== media.torrentFilePath ||
+      loadedMedia.torrentMagnetUri !== media.torrentMagnetUri ||
       mediaFailed;
     if (sourceChanged) {
       resetPlaybackRate();

@@ -99,6 +99,9 @@ export function roomUiErrorFromUnknown(
         message: "Only the room owner may change the queue.",
       };
     }
+    if (error.code === "authentication_required") {
+      return { kind: "auth", message: "Sign in to change the queue." };
+    }
     if (error.code === "invalid_input" || error.code === "invalid_queue_order") {
       return { kind: "validation", message: error.message };
     }

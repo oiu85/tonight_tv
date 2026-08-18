@@ -12,6 +12,7 @@ import { createBrowserSupabaseClient } from "../supabase/browser";
 import type { Database } from "../supabase/database.types";
 import { parseTorrentFileIdentity } from "../torrent/torrent-manifest";
 import type { LocalP2pDescriptor } from "../p2p/local-p2p-contracts";
+import { extractYouTubeVideoId } from "./youtube-identity";
 
 export type MediaSourceType = Database["public"]["Enums"]["media_source_type"];
 export type MediaItem = Readonly<Database["public"]["Tables"]["media_items"]["Row"]>;
@@ -142,7 +143,6 @@ const SOURCE_TYPES = new Set<MediaSourceType>([
   "torrent",
   "local_p2p",
 ]);
-const YOUTUBE_VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/;
 const TORRENT_METADATA_BUCKET = "torrent-metadata";
 const TORRENT_METADATA_MAX_BYTES = 2 * 1024 * 1024;
 
@@ -168,10 +168,10 @@ function normalizeInput(input: MediaItemInput): NormalizedMediaItemInput {
   }
 
   if (input.sourceType === "youtube") {
-    const youtubeVideoId = input.youtubeVideoId.trim();
-    if (!YOUTUBE_VIDEO_ID_PATTERN.test(youtubeVideoId)) {
+    const youtubeVideoId = extractYouTubeVideoId(input.youtubeVideoId);
+    if (!youtubeVideoId) {
       throw invalidInput(
-        "YouTube Video ID must contain exactly 11 letters, numbers, hyphens, or underscores.",
+        "Enter a valid YouTube Video ID or watch URL.",
       );
     }
     return Object.freeze({
@@ -294,6 +294,19 @@ function normalizeInput(input: MediaItemInput): NormalizedMediaItemInput {
   ) {
     throw invalidInput("Media source must be a credential-free HTTP or HTTPS URL.");
   }
+
+  const youtubeFromUrl = extractYouTubeVideoId(sourceUrl);
+  if (youtubeFromUrl && input.sourceType === "auto") {
+    return Object.freeze({
+      title,
+      sourceUrl: null,
+      sourceType: "youtube",
+      youtubeVideoId: youtubeFromUrl,
+      torrent: null,
+      localP2p: null,
+    });
+  }
+
   return Object.freeze({
     title,
     sourceUrl,

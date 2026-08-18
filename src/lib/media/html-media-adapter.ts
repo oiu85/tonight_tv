@@ -43,6 +43,7 @@ export type HlsRuntimeFactory = Readonly<{
   create: (config: Partial<HlsConfig>) => HlsRuntime;
   errorEvent: string;
   levelLoadedEvent?: string;
+  manifestParsedEvent?: string;
 }>;
 
 export type HtmlMediaAdapterEvents = Readonly<{
@@ -82,6 +83,7 @@ const defaultHlsFactory: HlsRuntimeFactory = Object.freeze({
   create: (config) => new Hls(config) as unknown as HlsRuntime,
   errorEvent: Hls.Events.ERROR,
   levelLoadedEvent: Hls.Events.LEVEL_LOADED,
+  manifestParsedEvent: Hls.Events.MANIFEST_PARSED,
 });
 
 /**
@@ -122,6 +124,7 @@ export function createHtmlMediaPlayerAdapter(
   let lastError: MediaRuntimeError | null = null;
   let durationSec: number | null = null;
   let hlsIsLive = false;
+  let hlsManifestReady = false;
   let mediaRecoveryAttempted = false;
   let hasPlayed = false;
   let buffering = false;
@@ -130,7 +133,11 @@ export function createHtmlMediaPlayerAdapter(
   const seekWaiters = new Set<() => void>();
 
   function isReady(): boolean {
-    return !destroyed && mediaId !== null && mediaElement.readyState >= HAVE_METADATA;
+    return (
+      !destroyed &&
+      mediaId !== null &&
+      (mediaElement.readyState >= HAVE_METADATA || hlsManifestReady)
+    );
   }
 
   function settleReadyWaiters(): void {
@@ -335,7 +342,15 @@ export function createHtmlMediaPlayerAdapter(
     setBuffering(false);
     void events.onEnded?.();
   });
-  listen("error", () => reportError(classifyHtmlMediaError(mediaElement.error)));
+  listen("error", () => {
+    if (destroyed || mediaId === null) {
+      return;
+    }
+    if (!hls && !mediaElement.currentSrc && !mediaElement.src) {
+      return;
+    }
+    reportError(classifyHtmlMediaError(mediaElement.error));
+  });
   listen("emptied", () => {
     clearStallTimer();
     setBuffering(false);
@@ -355,17 +370,18 @@ export function createHtmlMediaPlayerAdapter(
     settleSeekWaiters();
     hls?.destroy();
     hls = null;
-    mediaElement.pause();
-    mediaElement.removeAttribute("src");
-    mediaElement.load();
     mediaId = null;
     playbackPermission = "unknown";
     lastError = null;
     durationSec = null;
     hlsIsLive = false;
+    hlsManifestReady = false;
     mediaRecoveryAttempted = false;
     hasPlayed = false;
     lastObservedTimeSec = 0;
+    mediaElement.pause();
+    mediaElement.removeAttribute("src");
+    mediaElement.load();
   }
 
   async function loadMedia(media: SyncMedia | null): Promise<void> {
@@ -399,6 +415,7 @@ export function createHtmlMediaPlayerAdapter(
       reportError(error);
       throw error;
     }
+    mediaElement.crossOrigin = "anonymous";
     if (runtimeSource === "hls" && !supportsNativeHls(mediaElement)) {
       if (!hlsFactory.isSupported()) {
         const error = unsupportedHlsRuntimeError();
@@ -430,6 +447,16 @@ export function createHtmlMediaPlayerAdapter(
         }
         reportError(hlsError);
       });
+      if (hlsFactory.manifestParsedEvent) {
+        hls.on(hlsFactory.manifestParsedEvent, () => {
+          if (destroyed || generation !== sourceGeneration) {
+            return;
+          }
+          hlsManifestReady = true;
+          settleReadyWaiters();
+          events.onProgress?.();
+        });
+      }
       if (hlsFactory.levelLoadedEvent) {
         hls.on(hlsFactory.levelLoadedEvent, (_event, data) => {
           if (destroyed || generation !== sourceGeneration) {

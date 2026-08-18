@@ -70,6 +70,7 @@ function makeSnapshot(
             youtube_video_id: null,
             torrent_info_hash: null,
             torrent_input_kind: null,
+            torrent_magnet_uri: null,
             torrent_file_index: null,
             torrent_file_path: null,
             torrent_file_name: null,

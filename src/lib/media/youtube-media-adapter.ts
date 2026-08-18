@@ -9,13 +9,16 @@ import {
 } from "./media-source";
 import type { PlayerSyncAdapter, SyncMedia } from "../sync/sync-core";
 import {
+  isValidYouTubeVideoId,
+} from "./youtube-identity";
+import {
   loadYouTubeIframeApi,
   YOUTUBE_PLAYER_STATE,
   type YouTubeIframeApi,
   type YouTubePlayer,
 } from "./youtube-iframe-api";
 
-const YOUTUBE_VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/;
+export { extractYouTubeVideoId, isValidYouTubeVideoId } from "./youtube-identity";
 
 type ReadyWaiter = Readonly<{
   resolve: () => void;
@@ -38,10 +41,6 @@ export type YouTubeMediaAdapterOptions = Readonly<{
   events?: HtmlMediaAdapterEvents;
   loadApi?: () => Promise<YouTubeIframeApi>;
 }>;
-
-export function isValidYouTubeVideoId(value: string): boolean {
-  return YOUTUBE_VIDEO_ID_PATTERN.test(value.trim());
-}
 
 export function createYouTubeMediaPlayerAdapter(
   mountElement: HTMLElement,
@@ -167,6 +166,7 @@ export function createYouTubeMediaPlayerAdapter(
             enablejsapi: 1,
             fs: 0,
             origin: window.location.origin,
+            widget_referrer: window.location.origin,
             playsinline: 1,
             rel: 0,
           },
@@ -272,6 +272,10 @@ export function createYouTubeMediaPlayerAdapter(
     const activePlayer = await ensurePlayer();
     if (destroyed || mediaId !== media.id || youtubeVideoId !== nextVideoId) return;
     activePlayer.cueVideoById({ videoId: nextVideoId, startSeconds: 0 });
+    // cueVideoById often never emits CUED until play. The iframe is already
+    // commandable after onReady, so the room must not wait on that event.
+    mediaReady = true;
+    settleReadyWaiters();
   }
 
   function waitUntilReady(): Promise<void> {

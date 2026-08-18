@@ -83,8 +83,7 @@ function numberData(event: WebtorEvent): number | null {
 }
 
 function magnetFor(media: SyncMedia): string | null {
-  const value = (media as SyncMedia & { torrentMagnetUri?: string | null }).torrentMagnetUri;
-  if (value?.startsWith("magnet:?")) return value;
+  if (media.torrentMagnetUri?.startsWith("magnet:?")) return media.torrentMagnetUri;
   return media.torrentInfoHash
     ? `magnet:?xt=urn:btih:${encodeURIComponent(media.torrentInfoHash)}`
     : null;

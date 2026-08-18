@@ -373,9 +373,6 @@ function MediaDialogContent({
               value={youtubeVideoId}
               onChange={(event) => setYoutubeVideoId(event.target.value)}
               placeholder={t("youtubePlaceholder")}
-              minLength={11}
-              maxLength={11}
-              pattern="[A-Za-z0-9_-]{11}"
               aria-describedby={error ? "media-form-error" : undefined}
               required
             />

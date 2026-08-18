@@ -58,6 +58,16 @@ export function mediaErrorCopy(
     case "p2p_tracker_unavailable":
     case "p2p_stream_failed":
       return { title: tErrors("p2pStreamTitle"), body: tErrors("p2pStreamBody") };
+    case "youtube_invalid_video_id":
+      return { title: tErrors("youtubeInvalidTitle"), body: tErrors("youtubeInvalidBody") };
+    case "youtube_video_unavailable":
+      return { title: tErrors("youtubeUnavailableTitle"), body: tErrors("youtubeUnavailableBody") };
+    case "youtube_embed_not_allowed":
+      return { title: tErrors("youtubeEmbedTitle"), body: tErrors("youtubeEmbedBody") };
+    case "youtube_client_identity_missing":
+    case "youtube_html5_player_error":
+    case "youtube_playback_error":
+      return { title: tErrors("youtubePlayerTitle"), body: tErrors("youtubePlayerBody") };
     default:
       return { title: tErrors("fatal"), body: tErrors("fatal") };
   }

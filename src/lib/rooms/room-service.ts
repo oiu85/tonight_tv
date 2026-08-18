@@ -57,6 +57,7 @@ export type RoomSnapshot = Readonly<{
     youtube_video_id: string | null;
     torrent_info_hash: string | null;
     torrent_input_kind: Database["public"]["Enums"]["torrent_input_kind"] | null;
+    torrent_magnet_uri: string | null;
     torrent_file_index: number | null;
     torrent_file_path: string | null;
     torrent_file_name: string | null;
@@ -83,6 +84,7 @@ export type RoomSnapshot = Readonly<{
     youtube_video_id: string | null;
     torrent_info_hash: string | null;
     torrent_input_kind: Database["public"]["Enums"]["torrent_input_kind"] | null;
+    torrent_magnet_uri: string | null;
     torrent_file_index: number | null;
     torrent_file_path: string | null;
     torrent_file_name: string | null;

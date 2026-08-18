@@ -332,6 +332,19 @@ describe("HTML media player adapter", () => {
       adapter.loadMedia(media("https://media.example.test/live.m3u8", "hls")),
     ).rejects.toMatchObject({ category: "unsupported_codec_container" });
   });
+
+  it("ignores empty-source reset errors so provider switches stay healthy", async () => {
+    const element = new FakeMediaElement();
+    const onError = vi.fn();
+    const adapter = createHtmlMediaPlayerAdapter(asMediaElement(element), {
+      events: { onError },
+    });
+    await adapter.loadMedia(media("https://media.example.test/movie.mp4", "mp4"));
+    await adapter.loadMedia(null);
+    element.error = { code: 4, message: "Empty src" } as MediaError;
+    element.dispatchEvent(new Event("error"));
+    expect(onError).not.toHaveBeenCalled();
+  });
 });
 
 describe("local ended and control boundaries", () => {

@@ -164,6 +164,13 @@ export function classifyHlsError(error: HlsErrorLike): MediaRuntimeError {
   const detail = error.details?.toLowerCase() ?? "";
   const status = error.response?.code;
 
+  if (status === 0) {
+    return new MediaRuntimeError(
+      "cors_referrer_origin_blocked",
+      "The HLS host blocked this origin. Use a CORS-enabled public stream.",
+      { cause: error, fatal: error.fatal },
+    );
+  }
   if (status === 401 || status === 403) {
     return new MediaRuntimeError(
       "authenticated_source_unsupported",

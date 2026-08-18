@@ -78,8 +78,8 @@ describe("YouTube media adapter", () => {
       videoId: media.youtubeVideoId,
       startSeconds: 0,
     });
+    expect(options?.playerVars.widget_referrer).toBe(window.location.origin);
 
-    options?.events.onStateChange({ target: fixture.player, data: YOUTUBE_PLAYER_STATE.CUED });
     await expect(adapter.waitUntilReady()).resolves.toBeUndefined();
     expect(adapter.isReady()).toBe(true);
     expect(onReady).toHaveBeenCalledOnce();

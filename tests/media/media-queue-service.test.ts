@@ -143,6 +143,40 @@ describe("media queue service", () => {
     });
   });
 
+  it("accepts YouTube watch URLs and Auto-detected YouTube links", async () => {
+    const youtubeItem: MediaItem = {
+      ...item(mediaA, 0),
+      source_url: null,
+      source_type: "youtube",
+      youtube_video_id: "dQw4w9WgXcQ",
+    };
+    const { client, rpc } = createClientMock(
+      { data: [youtubeItem], error: null },
+      { data: [youtubeItem], error: null },
+    );
+    const service = createMediaQueueService(client);
+
+    await service.addMedia(roomId, {
+      title: "Watch URL",
+      sourceType: "youtube",
+      youtubeVideoId: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    });
+    await service.addMedia(roomId, {
+      title: "Auto URL",
+      sourceUrl: "https://youtu.be/dQw4w9WgXcQ",
+      sourceType: "auto",
+    });
+
+    expect(rpc).toHaveBeenNthCalledWith(1, "add_media_item", expect.objectContaining({
+      p_source_type: "youtube",
+      p_youtube_video_id: "dQw4w9WgXcQ",
+    }));
+    expect(rpc).toHaveBeenNthCalledWith(2, "add_media_item", expect.objectContaining({
+      p_source_type: "youtube",
+      p_youtube_video_id: "dQw4w9WgXcQ",
+    }));
+  });
+
   it("sends one atomic reorder RPC and rejects duplicate IDs locally", async () => {
     const ordered = [item(mediaB, 0), item(mediaA, 1)];
     const { client, rpc } = createClientMock({ data: ordered, error: null });

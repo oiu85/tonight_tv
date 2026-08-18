@@ -4,7 +4,7 @@ export const LOCAL_P2P_TRACKERS = Object.freeze([
   "wss://tracker.webtorrent.dev",
 ] as const);
 export const LOCAL_P2P_SERVICE_WORKER_URL = "/webtorrent/sw.min.js";
-export const LOCAL_P2P_SERVICE_WORKER_SCOPE = "/webtorrent/";
+export const LOCAL_P2P_SERVICE_WORKER_SCOPE = "/";
 export type LocalP2pStatus = "unsupported" | "idle" | "preparing" | "hashing" | "seeding" | "connecting" | "ready" | "buffering" | "no_peers" | "error" | "stopped";
 export type LocalP2pDescriptor = Readonly<{ infoHash: string; magnetUri: string; fileName: string; fileSize: number; mimeType: string | null }>;
 export type LocalP2pState = Readonly<{ status: LocalP2pStatus; infoHash: string | null; peerCount: number; uploadSpeed: number; downloadSpeed: number; progress: number; error: LocalP2pError | null }>;

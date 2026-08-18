@@ -27,6 +27,7 @@ export const metadata: Metadata = {
   title: { default: "Tonight TV", template: "%s · Tonight TV" },
   description: "A private synchronized watch room.",
   applicationName: "Tonight TV",
+  referrer: "origin-when-cross-origin",
 };
 
 export const viewport: Viewport = {

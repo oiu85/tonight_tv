@@ -23,6 +23,7 @@ export type SyncMedia = Readonly<{
   torrentInfoHash?: string | null;
   torrentFileIndex?: number | null;
   torrentFilePath?: string | null;
+  torrentMagnetUri?: string | null;
 }>;
 
 export type PlayerCapabilities = Readonly<{
