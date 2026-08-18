@@ -118,6 +118,31 @@ describe("media queue service", () => {
     });
   });
 
+  it("passes the YouTube video identity through the owner RPC", async () => {
+    const youtubeItem: MediaItem = {
+      ...item(mediaA, 0),
+      source_url: null,
+      source_type: "youtube",
+      youtube_video_id: "dQw4w9WgXcQ",
+    };
+    const { client, rpc } = createClientMock({ data: [youtubeItem], error: null });
+    const service = createMediaQueueService(client);
+
+    await expect(service.addMedia(roomId, {
+      title: "YouTube fixture",
+      sourceType: "youtube",
+      youtubeVideoId: "dQw4w9WgXcQ",
+    })).resolves.toEqual(youtubeItem);
+
+    expect(rpc).toHaveBeenCalledWith("add_media_item", {
+      p_room_id: roomId,
+      p_title: "YouTube fixture",
+      p_source_url: undefined,
+      p_source_type: "youtube",
+      p_youtube_video_id: "dQw4w9WgXcQ",
+    });
+  });
+
   it("sends one atomic reorder RPC and rejects duplicate IDs locally", async () => {
     const ordered = [item(mediaB, 0), item(mediaA, 1)];
     const { client, rpc } = createClientMock({ data: ordered, error: null });

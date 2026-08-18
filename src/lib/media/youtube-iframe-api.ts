@@ -1,4 +1,5 @@
 const YOUTUBE_IFRAME_API_SRC = "https://www.youtube.com/iframe_api";
+const YOUTUBE_IFRAME_API_TIMEOUT_MS = 15_000;
 
 export const YOUTUBE_PLAYER_STATE = Object.freeze({
   UNSTARTED: -1,
@@ -81,15 +82,32 @@ export function loadYouTubeIframeApi(): Promise<YouTubeIframeApi> {
 
   loadingPromise = new Promise<YouTubeIframeApi>((resolve, reject) => {
     const previousReady = targetWindow.onYouTubeIframeAPIReady;
+    let settled = false;
+    let script: HTMLScriptElement | null = null;
+    const rejectLoad = (message: string) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      loadingPromise = null;
+      targetWindow.onYouTubeIframeAPIReady = previousReady;
+      script?.remove();
+      reject(new Error(message));
+    };
     const finish = () => {
+      if (settled) return;
       const api = getLoadedApi(targetWindow);
       if (!api) {
-        loadingPromise = null;
-        reject(new Error("The YouTube IFrame API loaded without exposing YT.Player."));
+        rejectLoad("The YouTube IFrame API loaded without exposing YT.Player.");
         return;
       }
+      settled = true;
+      clearTimeout(timeoutId);
       resolve(api);
     };
+    const timeoutId = setTimeout(
+      () => rejectLoad("The YouTube IFrame API did not load within 15 seconds."),
+      YOUTUBE_IFRAME_API_TIMEOUT_MS,
+    );
 
     targetWindow.onYouTubeIframeAPIReady = () => {
       previousReady?.();
@@ -100,19 +118,18 @@ export function loadYouTubeIframeApi(): Promise<YouTubeIframeApi> {
       `script[src="${YOUTUBE_IFRAME_API_SRC}"]`,
     );
     if (existing) {
+      script = existing;
       existing.addEventListener("error", () => {
-        loadingPromise = null;
-        reject(new Error("The YouTube IFrame API script could not be loaded."));
+        rejectLoad("The YouTube IFrame API script could not be loaded.");
       }, { once: true });
       return;
     }
 
-    const script = document.createElement("script");
+    script = document.createElement("script");
     script.src = YOUTUBE_IFRAME_API_SRC;
     script.async = true;
     script.addEventListener("error", () => {
-      loadingPromise = null;
-      reject(new Error("The YouTube IFrame API script could not be loaded."));
+      rejectLoad("The YouTube IFrame API script could not be loaded.");
     }, { once: true });
     document.head.append(script);
   });

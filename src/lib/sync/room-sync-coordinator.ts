@@ -39,6 +39,7 @@ import {
 
 const FORCE_ALIGNMENT_TOLERANCE_SEC = 0.05;
 const DEFAULT_LONG_HIDDEN_THRESHOLD_MS = 15_000;
+const DEFAULT_MEDIA_READY_TIMEOUT_MS = 30_000;
 
 export type RoomSyncStatus =
   | "idle"
@@ -132,6 +133,7 @@ export type RoomSyncDependencies = Readonly<{
   player: PlayerSyncAdapter;
   monotonicNowMs?: () => number;
   longHiddenThresholdMs?: number;
+  mediaReadyTimeoutMs?: number;
 }>;
 
 function snapshotPlayback(snapshot: RoomSnapshot): CanonicalPlaybackState {
@@ -194,6 +196,27 @@ export function createRoomSyncCoordinator(
     (() => (typeof performance === "undefined" ? Date.now() : performance.now()));
   const longHiddenThresholdMs =
     dependencies.longHiddenThresholdMs ?? DEFAULT_LONG_HIDDEN_THRESHOLD_MS;
+  const mediaReadyTimeoutMs =
+    dependencies.mediaReadyTimeoutMs ?? DEFAULT_MEDIA_READY_TIMEOUT_MS;
+
+  async function waitForMediaReady(): Promise<void> {
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    try {
+      await Promise.race([
+        player.waitUntilReady(),
+        new Promise<never>((_, reject) => {
+          timeoutId = setTimeout(() => {
+            reject(new RoomSyncError(
+              "player_operation_failed",
+              "The media player did not become ready within 30 seconds.",
+            ));
+          }, mediaReadyTimeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timeoutId !== null) clearTimeout(timeoutId);
+    }
+  }
 
   let roomId: string | null = null;
   let identity: RoomPresenceIdentity | null = null;
@@ -589,10 +612,10 @@ export function createRoomSyncCoordinator(
       await player.loadMedia(media);
       loadedMedia = media;
       mediaFailed = false;
-      await player.waitUntilReady();
+      await waitForMediaReady();
       forceAlignment = true;
     } else if (forceAlignment && !player.isReady()) {
-      await player.waitUntilReady();
+      await waitForMediaReady();
     }
 
     await requestAlignment(forceAlignment);

@@ -53,11 +53,28 @@ function normalizeWebtorFiles(value: unknown) {
 async function inspectMagnet(magnetUri: string, signal?: AbortSignal): Promise<TorrentInspection> {
   const identity = await parseMagnetIdentity(magnetUri);
   const mount = document.createElement("div");
-  mount.hidden = true;
+  // Webtor needs a real layout box to initialize its iframe. Keep it offscreen
+  // instead of using `hidden`, which can prevent metadata events in browsers.
+  Object.assign(mount.style, {
+    position: "fixed",
+    width: "1px",
+    height: "1px",
+    left: "-10000px",
+    top: "0",
+    opacity: "0",
+    pointerEvents: "none",
+  });
   document.body.appendChild(mount);
   const sdk = await loadWebtorSdk();
   return new Promise((resolve, reject) => {
-    const timeout = window.setTimeout(() => finish(() => reject(new TorrentClientError("torrent_metadata_timeout", "Torrent metadata is taking longer than expected.", 504))), 90_000);
+    const timeout = window.setTimeout(
+      () => finish(() => reject(new TorrentClientError(
+        "torrent_metadata_timeout",
+        "Torrent metadata could not be retrieved within 30 seconds. Check the Magnet URI or try again.",
+        504,
+      ))),
+      30_000,
+    );
     const abort = () => finish(() => reject(new DOMException("Torrent inspection was cancelled.", "AbortError")));
     const finish = (settle: () => void) => {
       window.clearTimeout(timeout);
@@ -67,31 +84,43 @@ async function inspectMagnet(magnetUri: string, signal?: AbortSignal): Promise<T
       settle();
     };
     signal?.addEventListener("abort", abort, { once: true });
-    sdk.push({
-      el: mount,
-      magnet: magnetUri,
-      baseUrl: "https://webtor.io",
-      header: false,
-      controls: false,
-      features: { subtitles: false, volume: false },
-      on: (event) => {
-        if (event.name === sdk.TORRENT_ERROR) {
-          finish(() => reject(new TorrentClientError("torrent_metadata_unavailable", "Webtor could not fetch this Torrent metadata.", 502)));
-        }
-        if (event.name === sdk.TORRENT_FETCHED) {
-          const data = event.data as { files?: unknown; name?: unknown } | undefined;
-          const files = normalizeWebtorFiles(data?.files);
-          finish(() => resolve(Object.freeze({
-            infoHash: identity.infoHash,
-            torrentName: typeof data?.name === "string" ? data.name : identity.name,
-            status: "ready" as const,
-            files: Object.freeze(files),
-            totalFiles: files.length,
-            truncated: false,
-          })));
-        }
-      },
-    });
+    try {
+      sdk.push({
+        el: mount,
+        magnet: magnetUri,
+        baseUrl: "https://webtor.io",
+        header: false,
+        controls: false,
+        features: { subtitles: false, volume: false },
+        on: (event) => {
+          if (event.name === sdk.TORRENT_ERROR) {
+            finish(() => reject(new TorrentClientError("torrent_metadata_unavailable", "Webtor could not fetch this Torrent metadata. Try again or use a .torrent file.", 502)));
+          }
+          if (event.name === sdk.TORRENT_FETCHED) {
+            const data = event.data as { files?: unknown; name?: unknown } | undefined;
+            const files = normalizeWebtorFiles(data?.files);
+            if (files.length === 0) {
+              finish(() => reject(new TorrentClientError("torrent_metadata_unavailable", "Webtor returned no files for this Torrent.", 502)));
+              return;
+            }
+            finish(() => resolve(Object.freeze({
+              infoHash: identity.infoHash,
+              torrentName: typeof data?.name === "string" ? data.name : identity.name,
+              status: "ready" as const,
+              files: Object.freeze(files),
+              totalFiles: files.length,
+              truncated: false,
+            })));
+          }
+        },
+      });
+    } catch {
+      finish(() => reject(new TorrentClientError(
+        "torrent_metadata_unavailable",
+        "Webtor could not start Torrent inspection.",
+        502,
+      )));
+    }
   });
 }
 

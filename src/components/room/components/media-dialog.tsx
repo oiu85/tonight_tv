@@ -121,6 +121,7 @@ function MediaDialogContent({
   );
   const [inspectionStatus, setInspectionStatus] = useState<string | null>(null);
   const [inspectionError, setInspectionError] = useState<string | null>(null);
+  const [inspectionBusy, setInspectionBusy] = useState(false);
   const inspectionGeneration = useRef(0);
   const inspectionAbort = useRef<AbortController | null>(null);
 
@@ -149,6 +150,7 @@ function MediaDialogContent({
     setSelectedSubtitleIndexes(new Set());
     setInspectionError(null);
     setInspectionStatus(t("retrieving"));
+    setInspectionBusy(true);
     try {
       const result = await inspectTorrent(
         roomId,
@@ -172,6 +174,7 @@ function MediaDialogContent({
       setInspectionStatus(null);
     } finally {
       if (inspectionAbort.current === abort) inspectionAbort.current = null;
+      if (generation === inspectionGeneration.current) setInspectionBusy(false);
     }
   }
 
@@ -330,8 +333,8 @@ function MediaDialogContent({
                 <input id="media-torrent-file" type="file" accept=".torrent,application/x-bittorrent,application/octet-stream" onChange={(event) => { setTorrentFile(event.target.files?.[0] ?? null); setInspection(null); }} required={!inspection && item?.source_type !== "torrent"} />
               </Field>
             )}
-            <Button type="button" variant="secondary" onClick={() => void inspect()} disabled={torrentInputKind === "magnet" ? magnetUri.trim().length === 0 : !torrentFile}>
-              {t("inspect")}
+            <Button type="button" variant="secondary" onClick={() => void inspect()} disabled={inspectionBusy || (torrentInputKind === "magnet" ? magnetUri.trim().length === 0 : !torrentFile)}>
+              {inspectionBusy ? t("retrieving") : t("inspect")}
             </Button>
             {inspectionStatus ? <div className="tt-secondary" role="status">{inspectionStatus}</div> : null}
             {inspectionError ? <div className="tt-inline-error" role="alert">{inspectionError}</div> : null}

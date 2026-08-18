@@ -52,6 +52,27 @@ describe("room UI error normalization", () => {
     expect(result.message).toMatch(/Select another item/i);
   });
 
+  it("maps queue transport failures to an actionable safe message", () => {
+    const error = new MediaQueueError("request_failed", "postgres internal details");
+    const result = roomUiErrorFromUnknown(error, "fallback");
+    expect(result.kind).toBe("realtime");
+    expect(result.message).toMatch(/check your connection/i);
+    expect(result.message).not.toMatch(/postgres/i);
+  });
+
+  it("keeps coordinator failures separate from queue mutation errors", () => {
+    const error = new Error("player failed after the queue RPC succeeded");
+    error.name = "RoomSyncError";
+    const result = roomUiErrorFromUnknown(
+      error,
+      "Media was added, but the room is still synchronizing playback.",
+    );
+    expect(result).toEqual({
+      kind: "realtime",
+      message: "Media was added, but the room is still synchronizing playback.",
+    });
+  });
+
   it("maps chat rate-limit to a chat-rate-limit error", () => {
     const error = new RoomChatError("rate_limited", "slow down");
     const result = roomUiErrorFromUnknown(error, "x");

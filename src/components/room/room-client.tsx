@@ -52,6 +52,7 @@ import {
   isTransientNetworkLike,
   roomUiErrorFromUnknown,
 } from "@/lib/room/domain-errors";
+import { settlePostMutationPlayback } from "@/lib/room/post-mutation-playback";
 import { avatarInitials, avatarToneClass } from "@/lib/room/avatars";
 import { Button, LoadingBlock, Tabs, useToast } from "@/components/primitives";
 import { AdminControls } from "./components/admin-controls";
@@ -185,6 +186,19 @@ export function RoomClient({ roomId }: { roomId: string }) {
     phase === "room",
   );
 
+  async function reconcileCoordinator(
+    fallback = "Playback is still synchronizing. Use Retry to reconnect the room.",
+  ): Promise<boolean> {
+    try {
+      await coordinatorRef.current?.goLive();
+      return true;
+    } catch (error) {
+      const friendly = roomUiErrorFromUnknown(error, fallback);
+      toast.push(friendly.message, "danger");
+      return false;
+    }
+  }
+
   const adoptSnapshot = useCallback(
     async (nextSnapshot: RoomSnapshot, userEmail?: string | null) => {
       let joinedSnapshot = nextSnapshot;
@@ -307,9 +321,16 @@ export function RoomClient({ roomId }: { roomId: string }) {
     const youtubeMount = youtubeMountRef.current;
     const webtorMount = webtorMountRef.current;
     let disposed = false;
+    const reportCoordinatorError = (error: unknown, fallback: string) => {
+      if (disposed) return;
+      const friendly = roomUiErrorFromUnknown(error, fallback);
+      toast.push(friendly.message, "danger");
+    };
     const adapter = createRoomMediaPlayerAdapter(video, youtubeMount, webtorMount, {
         onBufferingChange: (buffering) => {
-          void coordinatorRef.current?.handleBufferingChange(buffering);
+          void coordinatorRef.current?.handleBufferingChange(buffering).catch((error) => {
+            reportCoordinatorError(error, "Playback buffering could not be synchronized.");
+          });
         },
         onError: (error) => {
           if (error.fatal || error.category === "autoplay_permission_blocked") {
@@ -329,14 +350,18 @@ export function RoomClient({ roomId }: { roomId: string }) {
               playerStatus === "aligning" ||
               playerStatus === "seeking")
           ) {
-            void coordinator.tick();
+            void coordinator.tick().catch((error) => {
+              reportCoordinatorError(error, "Playback drift could not be corrected.");
+            });
           }
         },
         onReady: () => {
           setMediaError(null);
           setDuration(adapter.getDuration());
           setPlayerCapabilities(adapter.getCapabilities());
-          void coordinatorRef.current?.tick();
+          void coordinatorRef.current?.tick().catch((error) => {
+            reportCoordinatorError(error, "Playback could not be synchronized after loading media.");
+          });
         },
         onEnded: async () => {
           try {
@@ -367,16 +392,44 @@ export function RoomClient({ roomId }: { roomId: string }) {
       setCanonicalTime(coordinator.getExpectedPosition());
     };
     const visibility = () => {
-      void coordinator.handleVisibilityChange(document.visibilityState === "visible");
+      void coordinator
+        .handleVisibilityChange(document.visibilityState === "visible")
+        .catch((error) => {
+          if (!disposed) {
+            const friendly = roomUiErrorFromUnknown(
+              error,
+              "The room could not resynchronize after returning to the tab.",
+            );
+            toast.push(friendly.message, "danger");
+          }
+        });
     };
     const online = () => {
-      void coordinator.goLive();
+      void coordinator.goLive().catch((error) => {
+        if (!disposed) {
+          const friendly = roomUiErrorFromUnknown(
+            error,
+            "The room connection is back, but playback is still synchronizing.",
+          );
+          toast.push(friendly.message, "danger");
+        }
+      });
     };
 
     document.addEventListener("visibilitychange", visibility);
     window.addEventListener("online", online);
     const progressId = window.setInterval(updatePlayerTime, 500);
-    const tickId = window.setInterval(() => void coordinator.tick(), 2000);
+    const tickId = window.setInterval(() => {
+      void coordinator.tick().catch((error) => {
+        if (!disposed) {
+          const friendly = roomUiErrorFromUnknown(
+            error,
+            "Playback could not be synchronized. Use Retry to reconnect the room.",
+          );
+          toast.push(friendly.message, "danger");
+        }
+      });
+    }, 2000);
 
     void coordinator
       .start({
@@ -411,13 +464,16 @@ export function RoomClient({ roomId }: { roomId: string }) {
       void coordinator.stop().catch(() => undefined);
       subtitleRuntime.destroy();
       adapter.destroy();
-      resetBrowserLocalP2pSourceService();
-      void destroyBrowserLocalP2pRuntime().catch(() => undefined);
       adapterRef.current = null;
       subtitleRuntimeRef.current = null;
       coordinatorRef.current = null;
     };
   }, [identity, phase, roomId, toast]);
+
+  useEffect(() => () => {
+    resetBrowserLocalP2pSourceService();
+    void destroyBrowserLocalP2pRuntime().catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     if (phase !== "room") return;
@@ -442,12 +498,18 @@ export function RoomClient({ roomId }: { roomId: string }) {
     setPendingCommand(command);
     try {
       const result = await operation();
-      await coordinatorRef.current?.applyCommandResult(result);
       toast.push(success);
+      try {
+        await coordinatorRef.current?.applyCommandResult(result);
+      } catch {
+        await reconcileCoordinator(
+          "The playback command was saved, but this browser is still synchronizing the player.",
+        );
+      }
     } catch (error) {
       if (isStaleVersionConflict(error)) {
         toast.push("Room state changed in another tab. Synced to the latest state.", "danger");
-        await coordinatorRef.current?.goLive();
+        await reconcileCoordinator();
       } else {
         const friendly = roomUiErrorFromUnknown(
           error,
@@ -506,25 +568,35 @@ export function RoomClient({ roomId }: { roomId: string }) {
       const subtitleFailures = input.sourceType === "torrent"
         ? await importTorrentSubtitles(item.id, subtitles)
         : 0;
-      if (playNow && !editingMedia) {
-        await getBrowserPlaybackCommandService().selectMedia(
-          roomId,
-          playback.state_version,
-          item.id,
-          true,
-        );
-      }
-      await coordinatorRef.current?.goLive();
+
+      const postMutation = await settlePostMutationPlayback({
+        select: playNow && !editingMedia
+          ? () => getBrowserPlaybackCommandService().selectMedia(
+              roomId,
+              playback.state_version,
+              item.id,
+              true,
+            ).then(() => undefined)
+          : undefined,
+        reconcile: async () => {
+          await coordinatorRef.current?.goLive();
+        },
+        selectionFailureMessage: "Media was added, but playback could not switch to it yet.",
+        reconciliationFailureMessage: "Media was added, but the room is still synchronizing playback.",
+      });
+      const playbackStarted = playNow && !editingMedia && postMutation.selectionSucceeded;
+
       toast.push(
         subtitleFailures > 0
           ? `Media added. ${subtitleFailures} subtitle${subtitleFailures === 1 ? "" : "s"} could not be imported.`
-          : editingMedia
-            ? "Media updated"
-            : playNow
+            : editingMedia
+              ? "Media updated"
+            : playbackStarted
               ? "Playing media"
               : "Media added to queue",
         subtitleFailures > 0 ? "danger" : undefined,
       );
+      if (postMutation.warning) toast.push(postMutation.warning, "danger");
       setMediaDialogOpen(false);
       setEditingMedia(null);
     } catch (error) {
@@ -548,16 +620,25 @@ export function RoomClient({ roomId }: { roomId: string }) {
         title,
         file,
       );
-      if (playNow) {
-        await getBrowserPlaybackCommandService().selectMedia(
-          roomId,
-          playback.state_version,
-          media.id,
-          true,
-        );
-      }
-      await coordinatorRef.current?.goLive();
-      toast.push(playNow ? "Device stream started" : "Device stream added to queue");
+      const postMutation = await settlePostMutationPlayback({
+        select: playNow
+          ? () => getBrowserPlaybackCommandService().selectMedia(
+              roomId,
+              playback.state_version,
+              media.id,
+              true,
+            ).then(() => undefined)
+          : undefined,
+        reconcile: async () => {
+          await coordinatorRef.current?.goLive();
+        },
+        selectionFailureMessage: "The device stream was added, but playback could not switch to it yet.",
+        reconciliationFailureMessage: "The device stream was added, but the room is still synchronizing playback.",
+      });
+      const playbackStarted = playNow && postMutation.selectionSucceeded;
+
+      toast.push(playbackStarted ? "Device stream started" : "Device stream added to queue");
+      if (postMutation.warning) toast.push(postMutation.warning, "danger");
       setMediaDialogOpen(false);
       setEditingMedia(null);
     } catch (error) {
@@ -580,8 +661,10 @@ export function RoomClient({ roomId }: { roomId: string }) {
       const service = getBrowserLocalP2pSourceService();
       const descriptor = await service.resolveSource(roomId, currentSnapshot.current_media.id);
       await service.resumeDeviceStream(descriptor, file);
-      await coordinatorRef.current?.goLive();
       toast.push("Device stream resumed");
+      await reconcileCoordinator(
+        "The device stream resumed, but the room is still synchronizing playback.",
+      );
     } catch (error) {
       const message = error instanceof Error
         ? error.message
@@ -629,8 +712,8 @@ export function RoomClient({ roomId }: { roomId: string }) {
     [ids[index], ids[next]] = [ids[next], ids[index]];
     try {
       await getBrowserMediaQueueService().reorderMedia(roomId, ids);
-      await coordinatorRef.current?.goLive();
       toast.push("Queue order updated");
+      await reconcileCoordinator("The queue order was saved, but the room is still synchronizing.");
     } catch (error) {
       const friendly = roomUiErrorFromUnknown(
         error,
@@ -650,8 +733,8 @@ export function RoomClient({ roomId }: { roomId: string }) {
           .leaveLocalStream(deleteMedia.torrent_info_hash)
           .catch(() => undefined);
       }
-      await coordinatorRef.current?.goLive();
       toast.push("Media removed");
+      await reconcileCoordinator("Media was removed, but the room is still synchronizing.");
       setDeleteMedia(null);
     } catch (error) {
       const friendly = roomUiErrorFromUnknown(
@@ -710,8 +793,8 @@ export function RoomClient({ roomId }: { roomId: string }) {
         fileName: input.file.name,
         text: await input.file.text(),
       });
-      await coordinatorRef.current?.goLive();
       toast.push("Subtitle uploaded");
+      await reconcileCoordinator("Subtitle uploaded, but the room is still synchronizing.");
     } catch (error) {
       const friendly = roomUiErrorFromUnknown(error, "Subtitle upload failed.");
       setSubtitleError(friendly.message);
@@ -729,8 +812,8 @@ export function RoomClient({ roomId }: { roomId: string }) {
         setSelectedSubtitleId(null);
       }
       await getBrowserSubtitleService().deleteSubtitle(subtitle);
-      await coordinatorRef.current?.goLive();
       toast.push("Subtitle deleted");
+      await reconcileCoordinator("Subtitle deleted, but the room is still synchronizing.");
     } catch (error) {
       const friendly = roomUiErrorFromUnknown(error, "Subtitle deletion failed.");
       setSubtitleError(friendly.message);
@@ -786,8 +869,8 @@ export function RoomClient({ roomId }: { roomId: string }) {
   async function startWatching() {
     try {
       await adapterRef.current?.startWatching();
-      await coordinatorRef.current?.goLive();
       setMediaError(null);
+      await reconcileCoordinator("Playback started, but the room is still synchronizing.");
     } catch (error) {
       if (error instanceof MediaRuntimeError) setMediaError(error);
     }
@@ -912,7 +995,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
             <Button
               size="sm"
               variant="ghost"
-              onClick={() => void coordinatorRef.current?.goLive()}
+              onClick={() => void reconcileCoordinator()}
             >
               Retry
             </Button>
@@ -941,8 +1024,8 @@ export function RoomClient({ roomId }: { roomId: string }) {
               currentTime={currentTime}
               duration={duration}
               onStartWatching={() => void startWatching()}
-              onRetry={() => void coordinatorRef.current?.goLive()}
-              onReconnect={() => void coordinatorRef.current?.goLive()}
+              onRetry={() => void reconcileCoordinator()}
+              onReconnect={() => void reconcileCoordinator()}
               onReselectLocalFile={owner ? () => localP2pFileRef.current?.click() : undefined}
               onMuteToggle={toggleMute}
               muted={muted}
@@ -1019,7 +1102,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
                       "Room state changed while you were seeking. Synced to the latest state.",
                       "danger",
                     );
-                    void coordinatorRef.current?.goLive();
+                    void reconcileCoordinator();
                     return;
                   }
                   void runCommand(
@@ -1064,7 +1147,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
                 fullscreenAvailable={fullscreenAvailable}
                 status={syncState.status}
                 behindSeconds={displayedBehindSeconds}
-                onGoLive={() => void coordinatorRef.current?.goLive()}
+                onGoLive={() => void reconcileCoordinator()}
               />
             )}
             <div className="tt-mobile-tabs">
@@ -1144,7 +1227,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
               Behind live? <button
                 className="tt-link tt-room-footer-link"
                 type="button"
-                onClick={() => void coordinatorRef.current?.goLive()}
+                onClick={() => void reconcileCoordinator()}
                 style={{ background: "transparent", border: 0, cursor: "pointer" }}
               >
                 Go live

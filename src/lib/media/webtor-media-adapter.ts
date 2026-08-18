@@ -6,18 +6,38 @@ import type { HtmlMediaAdapterEvents, PlaybackPermission } from "./html-media-ad
 import type { WebtorEvent, WebtorGenerator, WebtorPlayer } from "@webtor/embed-sdk-js";
 
 let sdkPromise: Promise<WebtorGenerator> | null = null;
+const WEBTOR_SDK_TIMEOUT_MS = 15_000;
+const WEBTOR_READY_TIMEOUT_MS = 30_000;
 export async function loadWebtorSdk(): Promise<WebtorGenerator> {
-  sdkPromise ??= new Promise((resolve, reject) => {
+  sdkPromise ??= new Promise<WebtorGenerator>((resolve, reject) => {
     const browserWindow = window as Window & { webtor?: WebtorGenerator };
     if (browserWindow.webtor) { resolve(browserWindow.webtor); return; }
     const script = document.createElement("script");
+    let settled = false;
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      callback();
+    };
+    const timeoutId = setTimeout(() => finish(() => {
+      script.remove();
+      reject(new Error("The public Webtor SDK did not load within 15 seconds."));
+    }), WEBTOR_SDK_TIMEOUT_MS);
     script.async = true;
     script.src = "https://cdn.jsdelivr.net/npm/@webtor/embed-sdk-js@0.2.19/dist/index.min.js";
-    script.onload = () => browserWindow.webtor
+    script.onload = () => finish(() => browserWindow.webtor
       ? resolve(browserWindow.webtor)
-      : reject(new Error("Webtor SDK loaded without its public generator."));
-    script.onerror = () => reject(new Error("The public Webtor SDK could not be loaded."));
+      : reject(new Error("Webtor SDK loaded without its public generator.")));
+    script.onerror = () => finish(() => {
+      script.remove();
+      reject(new Error("The public Webtor SDK could not be loaded."));
+    });
     document.head.appendChild(script);
+  }).catch((error) => {
+    // A transient CDN or extension failure must not poison all future loads.
+    sdkPromise = null;
+    throw error;
   });
   return sdkPromise;
 }
@@ -86,13 +106,23 @@ export function createWebtorMediaPlayerAdapter(options: Options): WebtorMediaPla
   let paused = true;
   let readyResolve: (() => void) | null = null;
   let readyReject: ((error: MediaRuntimeError) => void) | null = null;
+  let readyPromise: Promise<void> | null = null;
+  let readyTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function clearReadyTimer(): void {
+    if (readyTimer !== null) clearTimeout(readyTimer);
+    readyTimer = null;
+  }
 
   function report(error: MediaRuntimeError): void {
     lastError = error;
     events.onError?.(error);
-    readyReject?.(error);
+    clearReadyTimer();
+    const rejectReady = readyReject;
     readyResolve = null;
     readyReject = null;
+    readyPromise = null;
+    rejectReady?.(error);
   }
 
   function handle(event: WebtorEvent, expectedGeneration: number): void {
@@ -109,9 +139,12 @@ export function createWebtorMediaPlayerAdapter(options: Options): WebtorMediaPla
       player = event.player ?? player;
       ready = true;
       playbackPermission = "allowed";
-      readyResolve?.();
+      clearReadyTimer();
+      const resolveReady = readyResolve;
       readyResolve = null;
       readyReject = null;
+      readyPromise = null;
+      resolveReady?.();
       events.onReady?.();
       return;
     }
@@ -138,13 +171,30 @@ export function createWebtorMediaPlayerAdapter(options: Options): WebtorMediaPla
 
   async function loadMedia(media: SyncMedia | null): Promise<void> {
     if (destroyed) throw new MediaRuntimeError("unknown_media_error", "The Webtor adapter has been destroyed.");
+    if (readyReject) {
+      const replacedError = new MediaRuntimeError(
+        "network_source_unreachable",
+        "The Torrent was replaced before Webtor finished preparing it.",
+        { fatal: false },
+      );
+      const rejectReady = readyReject;
+      clearReadyTimer();
+      readyResolve = null;
+      readyReject = null;
+      readyPromise = null;
+      rejectReady(replacedError);
+    }
     generation += 1;
+    clearReadyTimer();
     const localGeneration = generation;
     ready = false;
     player = null;
     mediaId = media?.id ?? null;
+    lastError = null;
     currentTime = 0;
     duration = null;
+    playbackPermission = "unknown";
+    paused = true;
     options.mount.replaceChildren();
     if (!media) return;
     const magnet = magnetFor(media);
@@ -164,8 +214,28 @@ export function createWebtorMediaPlayerAdapter(options: Options): WebtorMediaPla
   }
 
   function waitUntilReady(): Promise<void> {
+    if (lastError?.fatal) return Promise.reject(lastError);
     if (ready) return Promise.resolve();
-    return new Promise((resolve, reject) => { readyResolve = resolve; readyReject = reject; });
+    if (readyPromise) return readyPromise;
+    readyPromise = new Promise((resolve, reject) => {
+      readyResolve = () => {
+        clearReadyTimer();
+        resolve();
+      };
+      readyReject = (error) => {
+        clearReadyTimer();
+        reject(error);
+      };
+      readyTimer = setTimeout(() => {
+        const error = new MediaRuntimeError(
+          "network_source_unreachable",
+          "Webtor could not prepare this Torrent stream within 30 seconds.",
+          { fatal: true },
+        );
+        report(error);
+      }, WEBTOR_READY_TIMEOUT_MS);
+    });
+    return readyPromise;
   }
   async function play(): Promise<void> {
     if (!player && !ready) await waitUntilReady();
@@ -178,7 +248,7 @@ export function createWebtorMediaPlayerAdapter(options: Options): WebtorMediaPla
   function pause(): void { player?.pause(); paused = true; }
   function seek(positionSec: number): void { player?.setPosition(Math.max(0, positionSec)); }
   function startWatching(): Promise<void> { return play(); }
-  function destroy(): void { if (destroyed) return; destroyed = true; generation += 1; player = null; options.mount.replaceChildren(); readyResolve = null; readyReject = null; }
+  function destroy(): void { if (destroyed) return; destroyed = true; generation += 1; clearReadyTimer(); player = null; options.mount.replaceChildren(); readyResolve = null; readyReject = null; readyPromise = null; }
 
   const capabilities: PlayerCapabilities = Object.freeze({ supportsFinePlaybackRateCorrection: false, supportsPictureInPicture: false, supportsNativeTextTracks: false });
   return Object.freeze({

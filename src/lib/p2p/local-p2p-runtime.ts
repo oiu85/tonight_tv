@@ -32,6 +32,7 @@ export type LocalP2pRuntime = Readonly<{
 }>;
 
 const IDLE_STATE: LocalP2pState = Object.freeze({ status: "idle", infoHash: null, peerCount: 0, uploadSpeed: 0, downloadSpeed: 0, progress: 0, error: null });
+const LOCAL_P2P_JOIN_TIMEOUT_MS = 30_000;
 let serviceWorkerPromise: Promise<ServiceWorkerRegistration> | null = null;
 
 function waitForActivated(registration: ServiceWorkerRegistration): Promise<ServiceWorkerRegistration> {
@@ -148,11 +149,24 @@ export function createLocalP2pRuntime(dependencies: LocalP2pRuntimeDependencies 
     if (pending) return pending;
     publish({ ...IDLE_STATE, status: "connecting", infoHash: descriptor.infoHash });
     const pendingJoin = new Promise<WebTorrentFile>((resolve, reject) => {
+      let settled = false;
+      const finish = (callback: () => void) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(joinTimeout);
+        callback();
+      };
+      const joinTimeout = setTimeout(() => {
+        const error = new LocalP2pError("p2p_join_failed", "No peer could provide this device stream within 30 seconds. Keep the owner tab open and try again.");
+        publishError(error);
+        finish(() => reject(error));
+      }, LOCAL_P2P_JOIN_TIMEOUT_MS);
       try {
         const torrent = client!.add(descriptor.magnetUri, { announce: LOCAL_P2P_TRACKERS, private: true, dht: false, lsd: false, utPex: false, destroyStoreOnDestroy: true }, (joined) => {
+          if (settled) return;
           const file = joined.files.find((candidate) => candidate.name === descriptor.fileName) ?? joined.files[0];
-          if (!file || file.length !== descriptor.fileSize) { const error = new LocalP2pError("p2p_invalid_descriptor", "The P2P source did not contain the expected video file."); void removeTorrent(client!, joined).finally(() => reject(error)); return; }
-          publish({ ...IDLE_STATE, status: joined.numPeers > 0 ? "ready" : "no_peers", infoHash: joined.infoHash.toLowerCase() }); resolve(file);
+          if (!file || file.length !== descriptor.fileSize) { const error = new LocalP2pError("p2p_invalid_descriptor", "The P2P source did not contain the expected video file."); void removeTorrent(client!, joined).finally(() => finish(() => reject(error))); return; }
+          publish({ ...IDLE_STATE, status: joined.numPeers > 0 ? "ready" : "no_peers", infoHash: joined.infoHash.toLowerCase() }); finish(() => resolve(file));
         });
         track(torrent);
         const noPeerTimer = setTimeout(() => {
@@ -162,8 +176,8 @@ export function createLocalP2pRuntime(dependencies: LocalP2pRuntimeDependencies 
           noPeerTimers.delete(descriptor.infoHash);
         }, 8_000);
         noPeerTimers.set(descriptor.infoHash, noPeerTimer);
-        torrent.once("error", (cause) => { const error = new LocalP2pError("p2p_join_failed", "The browser could not join the device stream.", { cause }); publishError(error); reject(error); });
-      } catch (cause) { const error = new LocalP2pError("p2p_join_failed", "The browser could not join the device stream.", { cause }); publishError(error); reject(error); }
+        torrent.once("error", (cause) => { const error = new LocalP2pError("p2p_join_failed", "The browser could not join the device stream.", { cause }); publishError(error); finish(() => reject(error)); });
+      } catch (cause) { const error = new LocalP2pError("p2p_join_failed", "The browser could not join the device stream.", { cause }); publishError(error); finish(() => reject(error)); }
     }).finally(() => { joinPromises.delete(descriptor.infoHash); });
     joinPromises.set(descriptor.infoHash, pendingJoin);
     return pendingJoin;

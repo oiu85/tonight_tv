@@ -102,6 +102,21 @@ export function roomUiErrorFromUnknown(
     if (error.code === "invalid_input" || error.code === "invalid_queue_order") {
       return { kind: "validation", message: error.message };
     }
+    if (error.code === "media_not_found") {
+      return { kind: "validation", message: "This media item is no longer in the queue." };
+    }
+    if (error.code === "metadata_upload_failed") {
+      return { kind: "unknown", message: "Torrent metadata could not be uploaded. Try the Magnet URI instead." };
+    }
+    if (error.code === "metadata_cleanup_failed") {
+      return { kind: "unknown", message: "The queue changed, but old Torrent metadata could not be cleaned up." };
+    }
+    if (error.code === "request_failed") {
+      return { kind: "realtime", message: "The queue request could not reach the server. Check your connection and try again." };
+    }
+    if (error.code === "invalid_response") {
+      return { kind: "realtime", message: "The server returned an incomplete queue response. Refresh the room before retrying." };
+    }
     return { kind: "unknown", message: fallback };
   }
 
@@ -139,6 +154,10 @@ export function roomUiErrorFromUnknown(
       recoverable: !(error as MediaRuntimeError).fatal,
       message: error.message,
     };
+  }
+
+  if (error instanceof Error && error.name === "RoomSyncError") {
+    return { kind: "realtime", message: fallback };
   }
 
   return { kind: "unknown", message: fallback };
