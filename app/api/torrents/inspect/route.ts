@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { TORRENT_METADATA_MAX_BYTES, TorrentGatewayError } from "@/lib/torrent/torrent-contracts";
-import { requireTorrentOwner } from "@/lib/torrent/torrent-route-auth";
-import { torrentRouteError } from "@/lib/torrent/torrent-route-response";
-import { getTorrentGateway } from "@/lib/torrent/torrent-server";
+import { TORRENT_METADATA_MAX_BYTES, TorrentGatewayError } from "@/lib/torrent/domain";
+import { requireTorrentOwner, torrentRouteError, getTorrentGateway } from "@/lib/torrent/infrastructure/server";
 
 export const runtime = "nodejs";
 

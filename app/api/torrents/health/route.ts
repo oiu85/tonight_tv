@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { torrentRouteError } from "@/lib/torrent/torrent-route-response";
-import { getTorrentGateway } from "@/lib/torrent/torrent-server";
+import { torrentRouteError, getTorrentGateway } from "@/lib/torrent/infrastructure/server";
 
 export const runtime = "nodejs";
 

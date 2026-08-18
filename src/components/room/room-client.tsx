@@ -46,10 +46,8 @@ import {
   type RoomSyncState,
 } from "@/lib/sync/room-sync-coordinator";
 import type { CanonicalPlaybackState } from "@/lib/sync/sync-core";
-import {
-  fetchTorrentSubtitle,
-} from "@/lib/torrent/torrent-client";
-import type { SubtitleCandidate } from "@/lib/torrent/torrent-manifest";
+import { fetchTorrentSubtitle } from "@/lib/torrent/application/browser-inspection";
+import type { SubtitleCandidate } from "@/lib/torrent/domain";
 import {
   isStaleVersionConflict,
   roomUiErrorFromUnknown,

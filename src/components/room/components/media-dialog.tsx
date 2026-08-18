@@ -7,8 +7,8 @@ import { useTranslations } from "@/i18n";
 import type { MediaItemInput, MediaSourceType } from "@/lib/media/media-queue-service";
 import type { LocalP2pState } from "@/lib/p2p/local-p2p-contracts";
 import type { RoomSnapshot } from "@/lib/rooms/room-service";
-import type { SubtitleCandidate } from "@/lib/torrent/torrent-manifest";
-import { inspectTorrent } from "@/lib/torrent/torrent-client";
+import type { SubtitleCandidate, TorrentInspection, TorrentManifestFile } from "@/lib/torrent/domain";
+import { inspectTorrent } from "@/lib/torrent/application/browser-inspection";
 import {
   extractInfoHashFromTorrentInput,
   parseMagnetIdentity,
@@ -16,11 +16,7 @@ import {
   defaultSubtitleFileIndexes,
   rankSubtitleCandidates,
   rankVideoCandidates,
-} from "@/lib/torrent/torrent-manifest";
-import type {
-  TorrentInspection,
-  TorrentManifestFile,
-} from "@/lib/torrent/torrent-contracts";
+} from "@/lib/torrent/domain";
 
 type QueueItem = RoomSnapshot["queue"][number];
 
@@ -123,7 +119,7 @@ function MediaDialogContent({
   const [selectedVideoIndex, setSelectedVideoIndex] = useState<number | null>(
     item?.torrent_file_index ?? null,
   );
-  const [selectedSubtitleIndexes, setSelectedSubtitleIndexes] = useState<Set<number>>(
+  const [selectedSubtitleIndexes, setSelectedSubtitleIndexes] = useState<ReadonlySet<number>>(
     () => new Set(),
   );
   const [inspectionStatus, setInspectionStatus] = useState<string | null>(null);
