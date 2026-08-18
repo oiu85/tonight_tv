@@ -13,6 +13,7 @@ import {
   extractInfoHashFromTorrentInput,
   parseMagnetIdentity,
   isWebtorAutoselectPath,
+  defaultSubtitleFileIndexes,
   rankSubtitleCandidates,
   rankVideoCandidates,
 } from "@/lib/torrent/torrent-manifest";
@@ -144,8 +145,6 @@ function MediaDialogContent({
     () => (selectedVideo ? rankSubtitleCandidates(selectedVideo, inspection?.files ?? []) : []),
     [inspection, selectedVideo],
   );
-  const subtitleIndexesFor = (video: TorrentManifestFile, files: readonly TorrentManifestFile[]) =>
-    new Set(rankSubtitleCandidates(video, files).map((candidate) => candidate.file.index));
   const magnetIdentityReady = Boolean(extractInfoHashFromTorrentInput(magnetUri));
   const autoselectInspection = Boolean(
     inspection && selectedVideo && isWebtorAutoselectPath(selectedVideo.path),
@@ -181,7 +180,7 @@ function MediaDialogContent({
         setInspectionError(t("noVideoFiles"));
       } else if (candidates.length === 1) {
         setSelectedVideoIndex(candidates[0].index);
-        setSelectedSubtitleIndexes(subtitleIndexesFor(candidates[0], result.files));
+        setSelectedSubtitleIndexes(defaultSubtitleFileIndexes(candidates[0], result.files));
       }
       setInspectionStatus(t("ready"));
     } catch (cause) {
@@ -415,7 +414,7 @@ function MediaDialogContent({
                 <legend>{t("videoFile")}</legend>
                 {videoCandidates.map((file: TorrentManifestFile) => (
                   <label key={file.index} className="tt-torrent-file-option">
-                    <input type="radio" name="torrent-video" checked={selectedVideoIndex === file.index} onChange={() => { setSelectedVideoIndex(file.index); setSelectedSubtitleIndexes(subtitleIndexesFor(file, inspection?.files ?? [])); }} />
+                    <input type="radio" name="torrent-video" checked={selectedVideoIndex === file.index} onChange={() => { setSelectedVideoIndex(file.index); setSelectedSubtitleIndexes(defaultSubtitleFileIndexes(file, inspection?.files ?? [])); }} />
                     <span><strong>{file.name}</strong><small>{file.path} - {(file.sizeBytes / 1024 / 1024).toFixed(1)} MiB</small></span>
                   </label>
                 ))}

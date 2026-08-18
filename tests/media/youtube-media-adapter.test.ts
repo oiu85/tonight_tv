@@ -153,8 +153,8 @@ describe("YouTube media adapter", () => {
 
     await adapter.loadMedia(media);
     const options = fixture.getOptions();
-    fixture.player.seekTo.mockClear();
-    fixture.player.pauseVideo.mockClear();
+    vi.mocked(fixture.player.seekTo).mockClear();
+    vi.mocked(fixture.player.pauseVideo).mockClear();
     options?.events.onStateChange({
       target: fixture.player,
       data: YOUTUBE_PLAYER_STATE.ENDED,

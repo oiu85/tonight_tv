@@ -95,7 +95,6 @@ class FakePlayer implements PlayerSyncAdapter {
   seekable = true;
   seekLandingOffset = 0;
   seekBlocker: Promise<void> | null = null;
-  seekLandingOffset = 0;
   readonly loads: (SyncMedia | null)[] = [];
   readonly seeks: number[] = [];
   readonly play = vi.fn(async () => {
