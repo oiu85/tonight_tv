@@ -1,14 +1,14 @@
-import type SimplePeer from "@thaunknown/simple-peer/lite.js";
 import type WebTorrent from "webtorrent";
 import type { WebTorrentFile } from "webtorrent";
 
 import type { LocalP2pDescriptor, LocalP2pState } from "../domain/types";
 import type { LocalP2pSignalTransport } from "../domain/signal";
+import type { SimplePeerConstructor } from "../infrastructure/simple-peer-types";
 
 export type LocalP2pRuntimeDependencies = Readonly<{
   loadWebTorrent?: () => Promise<typeof WebTorrent>;
   registerServiceWorker?: () => Promise<ServiceWorkerRegistration>;
-  loadSimplePeer?: () => Promise<typeof SimplePeer>;
+  loadSimplePeer?: () => Promise<SimplePeerConstructor>;
   metricIntervalMs?: number;
 }>;
 

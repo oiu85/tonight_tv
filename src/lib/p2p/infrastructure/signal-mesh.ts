@@ -1,4 +1,3 @@
-import type SimplePeer from "@thaunknown/simple-peer/lite.js";
 import type { WebTorrentTorrent } from "webtorrent";
 
 import {
@@ -13,8 +12,7 @@ import {
   type LocalP2pSignalRole,
   type LocalP2pSignalTransport,
 } from "../domain/signal";
-
-type SimplePeerConstructor = typeof SimplePeer;
+import type { SimplePeerConstructor, SimplePeerLike } from "./simple-peer-types";
 
 export type SignalMeshDependencies = Readonly<{
   loadSimplePeer: () => Promise<SimplePeerConstructor>;
@@ -35,7 +33,7 @@ export function createSignalMesh(dependencies: SignalMeshDependencies): SignalMe
   const rtcConfig = dependencies.rtcConfig ?? LOCAL_P2P_RTC_CONFIG;
   const torrents = new Map<string, WebTorrentTorrent>();
   const roles = new Map<string, LocalP2pSignalRole>();
-  const peers = new Map<string, SimplePeer>();
+  const peers = new Map<string, SimplePeerLike>();
   const connected = new Set<string>();
   const creating = new Set<string>();
   const helloTimers = new Map<string, ReturnType<typeof setInterval>>();

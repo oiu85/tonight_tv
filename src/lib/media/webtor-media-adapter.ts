@@ -26,6 +26,23 @@ export async function loadWebtorSdk(): Promise<WebtorGenerator> {
       return;
     }
     const script = document.createElement("script");
+    // The public SDK auto-converts every <video> on script load. Tonight TV
+    // owns an empty HTML video element beside the Webtor mount, so leave such
+    // elements detached until the SDK has finished its one-time scan. This
+    // prevents the SDK from calling push() without a magnet or torrent URL.
+    const detachedVideos = Array.from(document.querySelectorAll("video"))
+      .filter((video) => {
+        const source = video.getAttribute("src")?.trim() ?? "";
+        const torrent = video.getAttribute("data-torrent")?.trim() ?? "";
+        return !source && !torrent && video.parentElement;
+      })
+      .map((video) => Object.freeze({ video, parent: video.parentElement!, next: video.nextSibling }));
+    for (const entry of detachedVideos) entry.parent.removeChild(entry.video);
+    const restoreVideos = () => {
+      for (const entry of detachedVideos) {
+        if (!entry.video.isConnected) entry.parent.insertBefore(entry.video, entry.next);
+      }
+    };
     let settled = false;
     const finish = (callback: () => void) => {
       if (settled) return;
@@ -34,12 +51,14 @@ export async function loadWebtorSdk(): Promise<WebtorGenerator> {
       callback();
     };
     const timeoutId = setTimeout(() => finish(() => {
+      restoreVideos();
       script.remove();
       reject(new Error("The public Webtor SDK did not load within 15 seconds."));
     }), WEBTOR_SDK_TIMEOUT_MS);
     script.async = true;
     script.src = WEBTOR_SDK_SRC;
     script.onload = () => finish(() => {
+      restoreVideos();
       const generator = asWebtorGenerator((window as Window & { webtor?: unknown }).webtor);
       if (generator) {
         resolve(generator);
@@ -48,6 +67,7 @@ export async function loadWebtorSdk(): Promise<WebtorGenerator> {
       reject(new Error("Webtor SDK loaded without its public generator."));
     });
     script.onerror = () => finish(() => {
+      restoreVideos();
       script.remove();
       reject(new Error("The public Webtor SDK could not be loaded."));
     });

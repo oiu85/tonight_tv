@@ -308,6 +308,18 @@ export function rankSubtitleCandidates(
     .sort((a, b) => b.score - a.score || a.file.name.localeCompare(b.file.name));
 }
 
+/**
+ * Returns the sidecar subtitle indexes that should be imported by default for
+ * a selected video. The decision stays in the torrent domain so the dialog
+ * only renders and submits the user's final choices.
+ */
+export function defaultSubtitleFileIndexes(
+  video: TorrentManifestFile,
+  files: readonly TorrentManifestFile[],
+): ReadonlySet<number> {
+  return new Set(rankSubtitleCandidates(video, files).map((candidate) => candidate.file.index));
+}
+
 export function rankVideoCandidates(files: readonly TorrentManifestFile[]): readonly TorrentManifestFile[] {
   return files
     .filter((file) => file.playableCandidate)
