@@ -21,6 +21,14 @@ import { attachTorrentFile, pickTorrentFile, removeTorrent } from "./torrent-fil
 export type { LocalP2pRuntime, LocalP2pRuntimeDependencies } from "../application/ports";
 export { registerLocalP2pServiceWorker } from "./service-worker";
 
+function isDuplicateTorrentError(cause: unknown): boolean {
+  return cause instanceof Error && /duplicate torrent/i.test(cause.message);
+}
+
+function torrentInfoHash(torrent: WebTorrentTorrent): string {
+  return (torrent.infoHash ?? "").toLowerCase();
+}
+
 type StateListener = (state: LocalP2pState) => void;
 
 const TORRENT_OPTIONS = Object.freeze({
@@ -61,7 +69,11 @@ export function createLocalP2pRuntime(dependencies: LocalP2pRuntimeDependencies 
   const hostingFor = (infoHash: string | null) => Boolean(infoHash && seedFiles.has(infoHash));
 
   function track(torrent: WebTorrentTorrent, role: "seed" | "leech"): void {
-    const infoHash = torrent.infoHash.toLowerCase();
+    const infoHash = torrentInfoHash(torrent);
+    if (!infoHash) {
+      torrent.once("infoHash", () => track(torrent, role));
+      return;
+    }
     if (torrents.get(infoHash) === torrent) return;
     torrents.set(infoHash, torrent);
     mesh.bind(infoHash, torrent, role);
@@ -186,71 +198,131 @@ export function createLocalP2pRuntime(dependencies: LocalP2pRuntimeDependencies 
     });
   }
 
-  async function joinLocalStream(descriptor: LocalP2pDescriptor): Promise<WebTorrentFile> {
-    validateLocalP2pDescriptor(descriptor);
-    await initialize();
-    if (!client) throw new LocalP2pError("p2p_initialization_failed", "The P2P runtime is unavailable.");
-    const existing = torrents.get(descriptor.infoHash);
-    if (existing) {
-      const file = pickTorrentFile(existing, descriptor);
-      if (file) return file;
+  function findClientTorrent(infoHash: string): WebTorrentTorrent | null {
+    const mapped = torrents.get(infoHash);
+    if (mapped && !mapped.destroyed) return mapped;
+    const fromList = client?.torrents?.find((candidate) => torrentInfoHash(candidate) === infoHash);
+    if (fromList && !fromList.destroyed) return fromList;
+    try {
+      const got = client?.get?.(infoHash);
+      if (got && !got.destroyed) return got;
+    } catch {
+      // WebTorrent throws if the id is not loaded yet.
     }
-    const pending = joinPromises.get(descriptor.infoHash);
-    if (pending) return pending;
-    publish({ ...IDLE_LOCAL_P2P_STATE, status: "connecting", infoHash: descriptor.infoHash, hosting: false });
-    const pendingJoin = new Promise<WebTorrentFile>((resolve, reject) => {
+    return null;
+  }
+
+  function waitForTorrentFile(
+    torrent: WebTorrentTorrent,
+    descriptor: LocalP2pDescriptor,
+    timeoutMs = LOCAL_P2P_JOIN_TIMEOUT_MS,
+  ): Promise<WebTorrentFile> {
+    const already = pickTorrentFile(torrent, descriptor);
+    if (already) {
+      already.select?.(1);
+      return Promise.resolve(already);
+    }
+    return new Promise((resolve, reject) => {
       let settled = false;
       const finish = (callback: () => void) => {
         if (settled) return;
         settled = true;
-        clearTimeout(joinTimeout);
+        clearTimeout(timeoutId);
         callback();
       };
-      const fail = (error: LocalP2pError) => {
-        publishError(error);
-        const torrent = torrents.get(descriptor.infoHash);
-        if (torrent && client && !seedFiles.has(descriptor.infoHash)) {
-          torrents.delete(descriptor.infoHash);
-          mesh.unbind(descriptor.infoHash);
-          void removeTorrent(client, torrent).catch(() => undefined);
-        }
-        finish(() => reject(error));
+      const tryPick = () => {
+        const file = pickTorrentFile(torrent, descriptor);
+        if (!file) return false;
+        file.select?.(1);
+        finish(() => resolve(file));
+        return true;
       };
-      const joinTimeout = setTimeout(() => {
-        fail(new LocalP2pError(
+      const timeoutId = setTimeout(() => {
+        finish(() => reject(new LocalP2pError(
           "p2p_join_failed",
           "No peer could provide this device stream within 45 seconds. Keep the original hosting tab open and try again.",
-        ));
-      }, LOCAL_P2P_JOIN_TIMEOUT_MS);
-      try {
-        const torrent = client!.add(magnetWithTrackers(descriptor.magnetUri), TORRENT_OPTIONS, (joined) => {
-          if (settled) return;
-          const file = pickTorrentFile(joined, descriptor);
-          if (!file) {
-            fail(new LocalP2pError("p2p_invalid_descriptor", "The P2P source did not contain the expected video file."));
-            return;
-          }
-          file.select?.(1);
-          publish({
-            ...IDLE_LOCAL_P2P_STATE,
-            status: joined.numPeers > 0 ? "ready" : "no_peers",
-            infoHash: joined.infoHash.toLowerCase(),
-            peerCount: joined.numPeers,
-            hosting: false,
-          });
-          finish(() => resolve(file));
-        });
-        track(torrent, "leech");
-        torrent.once("error", (cause) => {
-          fail(new LocalP2pError("p2p_join_failed", "The browser could not join the device stream.", { cause }));
-        });
-      } catch (cause) {
-        fail(new LocalP2pError("p2p_join_failed", "The browser could not join the device stream.", { cause }));
-      }
-    }).finally(() => {
-      joinPromises.delete(descriptor.infoHash);
+        )));
+      }, timeoutMs);
+      torrent.on("ready", tryPick);
+      torrent.on("metadata", tryPick);
+      torrent.on("infoHash", tryPick);
+      torrent.once("error", (cause) => {
+        if (isDuplicateTorrentError(cause) && tryPick()) return;
+        finish(() => reject(new LocalP2pError(
+          "p2p_join_failed",
+          "The browser could not join the device stream.",
+          { cause },
+        )));
+      });
+    });
+  }
+
+  async function joinLocalStream(descriptor: LocalP2pDescriptor): Promise<WebTorrentFile> {
+    validateLocalP2pDescriptor(descriptor);
+    await initialize();
+    if (!client) throw new LocalP2pError("p2p_initialization_failed", "The P2P runtime is unavailable.");
+    const pending = joinPromises.get(descriptor.infoHash);
+    if (pending) return pending;
+
+    let resolveJoin: (file: WebTorrentFile) => void = () => undefined;
+    let rejectJoin: (error: unknown) => void = () => undefined;
+    const pendingJoin = new Promise<WebTorrentFile>((resolve, reject) => {
+      resolveJoin = resolve;
+      rejectJoin = reject;
     });
     joinPromises.set(descriptor.infoHash, pendingJoin);
+
+    void (async () => {
+      publish({ ...IDLE_LOCAL_P2P_STATE, status: "connecting", infoHash: descriptor.infoHash, hosting: false });
+      const existing = findClientTorrent(descriptor.infoHash);
+      if (existing) {
+        track(existing, seedFiles.has(descriptor.infoHash) ? "seed" : "leech");
+        resolveJoin(await waitForTorrentFile(existing, descriptor));
+        return;
+      }
+      try {
+        const torrent = client!.add(
+          magnetWithTrackers(descriptor.magnetUri),
+          TORRENT_OPTIONS,
+          (joined) => {
+            const file = pickTorrentFile(joined, descriptor);
+            if (file) file.select?.(1);
+          },
+        );
+        track(torrent, "leech");
+        torrent.once("error", (cause) => {
+          if (!isDuplicateTorrentError(cause)) return;
+          const duplicate = findClientTorrent(descriptor.infoHash);
+          if (duplicate) {
+            track(duplicate, "leech");
+          }
+        });
+        resolveJoin(await waitForTorrentFile(torrent, descriptor));
+      } catch (cause) {
+        const duplicate = isDuplicateTorrentError(cause) ? findClientTorrent(descriptor.infoHash) : null;
+        if (duplicate) {
+          track(duplicate, "leech");
+          resolveJoin(await waitForTorrentFile(duplicate, descriptor));
+          return;
+        }
+        const error = cause instanceof LocalP2pError
+          ? cause
+          : new LocalP2pError("p2p_join_failed", "The browser could not join the device stream.", { cause });
+        publishError(error);
+        rejectJoin(error);
+      }
+    })().catch((cause) => {
+      const error = cause instanceof LocalP2pError
+        ? cause
+        : new LocalP2pError("p2p_join_failed", "The browser could not join the device stream.", { cause });
+      publishError(error);
+      rejectJoin(error);
+    }).finally(() => {
+      if (joinPromises.get(descriptor.infoHash) === pendingJoin) {
+        joinPromises.delete(descriptor.infoHash);
+      }
+    });
+
     return pendingJoin;
   }
 

@@ -1,3 +1,8 @@
-export { collectWebtorFiles } from "../../webtor-embed-files";
-export { WebtorTorrentGateway } from "../../webtor-torrent-gateway";
-export type { WebtorTorrentGatewayOptions } from "../../webtor-torrent-gateway";
+export { collectWebtorFiles } from "./embed-files";
+export { WebtorTorrentGateway } from "./gateway";
+export type { WebtorTorrentGatewayOptions } from "./gateway";
+export {
+  createWebtorMediaPlayerAdapter,
+  loadWebtorSdk,
+  type WebtorMediaPlayerAdapter,
+} from "./media-player-adapter";

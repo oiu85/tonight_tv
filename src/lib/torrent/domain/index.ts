@@ -22,7 +22,7 @@ export {
   type TorrentGatewayStatus,
   type ResolveTorrentPlaybackInput,
   type TorrentInputKind,
-} from "../torrent-contracts";
+} from "./contracts";
 export {
   WEBTOR_AUTOSELECT_FILE_PATH,
   canonicalMagnetUri,
@@ -38,4 +38,4 @@ export {
   rankVideoCandidates,
   type ParsedTorrentIdentity,
   type SubtitleCandidate,
-} from "../torrent-manifest";
+} from "./manifest";

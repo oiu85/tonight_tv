@@ -6,7 +6,7 @@ import {
 } from "../domain/constants";
 import { LOCAL_P2P_RTC_CONFIG } from "../domain/ice";
 import {
-  shouldInitiateSignal,
+  shouldInitiateRoomPeer,
   signalPeerKey,
   type LocalP2pSignalMessage,
   type LocalP2pSignalRole,
@@ -100,7 +100,11 @@ export function createSignalMesh(dependencies: SignalMeshDependencies): SignalMe
     pendingHellos.set(message.infoHash, next);
   }
 
-  async function ensurePeer(infoHash: string, remoteSessionId: string): Promise<void> {
+  async function ensurePeer(
+    infoHash: string,
+    remoteSessionId: string,
+    remoteRole: LocalP2pSignalRole | null,
+  ): Promise<void> {
     const torrent = torrents.get(infoHash);
     const activeTransport = transport;
     if (
@@ -118,7 +122,12 @@ export function createSignalMesh(dependencies: SignalMeshDependencies): SignalMe
     try {
       const Peer = await dependencies.loadSimplePeer();
       if (destroyed || !torrents.has(infoHash) || peers.has(key) || !transport) return;
-      const initiator = shouldInitiateSignal(activeTransport.sessionId, remoteSessionId);
+      const initiator = shouldInitiateRoomPeer({
+        localSessionId: activeTransport.sessionId,
+        remoteSessionId,
+        localRole: currentRole(infoHash),
+        remoteRole,
+      });
       const peer = new Peer({
         initiator,
         trickle: true,
@@ -167,12 +176,12 @@ export function createSignalMesh(dependencies: SignalMeshDependencies): SignalMe
       return;
     }
     if (message.kind === "hello") {
-      await ensurePeer(message.infoHash, message.from);
+      await ensurePeer(message.infoHash, message.from, message.role);
       return;
     }
     const key = signalPeerKey(message.infoHash, message.from);
     if (!peers.has(key)) {
-      await ensurePeer(message.infoHash, message.from);
+      await ensurePeer(message.infoHash, message.from, message.role);
     }
     const peer = peers.get(key);
     if (!peer || message.data == null) return;
@@ -202,7 +211,7 @@ export function createSignalMesh(dependencies: SignalMeshDependencies): SignalMe
     const queued = pendingHellos.get(infoHash) ?? [];
     pendingHellos.delete(infoHash);
     for (const hello of queued) {
-      void ensurePeer(infoHash, hello.from);
+      void ensurePeer(infoHash, hello.from, hello.role);
     }
   }
 

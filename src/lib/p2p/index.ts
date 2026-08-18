@@ -7,6 +7,7 @@ export {
   magnetWithTrackers,
   mimeTypeFromFileName,
   parseLocalP2pSignal,
+  shouldInitiateRoomPeer,
   shouldInitiateSignal,
   type LocalP2pDescriptor,
   type LocalP2pErrorCode,

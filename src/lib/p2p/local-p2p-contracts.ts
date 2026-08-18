@@ -8,6 +8,7 @@ export { LocalP2pError, type LocalP2pErrorCode } from "./domain/errors";
 export { magnetWithTrackers, mimeTypeFromFileName } from "./domain/magnet";
 export {
   parseLocalP2pSignal,
+  shouldInitiateRoomPeer,
   shouldInitiateSignal,
   type LocalP2pSignalKind,
   type LocalP2pSignalMessage,

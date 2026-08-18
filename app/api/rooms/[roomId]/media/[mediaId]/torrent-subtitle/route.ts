@@ -1,10 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { TorrentGatewayError } from "@/lib/torrent/torrent-contracts";
-import { ensureGatewaySource } from "@/lib/torrent/torrent-playback-server";
-import { requireAuthorizedTorrentMedia } from "@/lib/torrent/torrent-route-auth";
-import { torrentRouteError } from "@/lib/torrent/torrent-route-response";
-import { getTorrentGateway } from "@/lib/torrent/torrent-server";
+import { TorrentGatewayError } from "@/lib/torrent/domain";
+import { ensureGatewaySource, requireAuthorizedTorrentMedia, torrentRouteError, getTorrentGateway } from "@/lib/torrent/infrastructure/server";
 
 export const runtime = "nodejs";
 

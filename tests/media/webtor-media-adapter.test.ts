@@ -2,7 +2,7 @@
 
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import { createWebtorMediaPlayerAdapter } from "../../src/lib/media/webtor-media-adapter";
+import { createWebtorMediaPlayerAdapter } from "../../src/lib/torrent/infrastructure/webtor/media-player-adapter";
 import type { SyncMedia } from "../../src/lib/sync/sync-core";
 import type { WebtorEvent, WebtorGenerator, WebtorPlayer } from "@webtor/embed-sdk-js";
 

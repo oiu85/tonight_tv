@@ -66,6 +66,13 @@ export function createYouTubeMediaPlayerAdapter(
   let resizeObserver: ResizeObserver | null = null;
   let suppressingEndScreen = false;
 
+  function youtubeDuration(): number {
+    const current = player as (YouTubePlayer & { getDuration?: unknown }) | null;
+    if (typeof current?.getDuration !== "function") return 0;
+    const duration = Number(current.getDuration());
+    return Number.isFinite(duration) ? duration : 0;
+  }
+
   function measurePlayerBox(): { width: number; height: number } {
     const rect = layoutRoot.getBoundingClientRect();
     const width = Math.round(rect.width || layoutRoot.clientWidth || 0);
@@ -180,7 +187,7 @@ export function createYouTubeMediaPlayerAdapter(
 
   function suppressRelatedVideos(): void {
     if (!player || suppressingEndScreen) return;
-    const duration = player.getDuration();
+    const duration = youtubeDuration();
     suppressingEndScreen = true;
     player.mute();
     if (Number.isFinite(duration) && duration > 0.5) {
@@ -386,12 +393,12 @@ export function createYouTubeMediaPlayerAdapter(
     isReady,
     isSeekable: (positionSec: number) => {
       if (!isReady() || !Number.isFinite(positionSec) || positionSec < 0) return false;
-      const duration = player?.getDuration() ?? 0;
+      const duration = youtubeDuration();
       return duration > 0 && positionSec <= duration + 0.05;
     },
     getSeekableTarget: (positionSec: number) => {
       if (!isReady() || !Number.isFinite(positionSec) || positionSec < 0) return null;
-      const duration = player?.getDuration() ?? 0;
+      const duration = youtubeDuration();
       return duration > 0 && positionSec <= duration + 0.05
         ? Math.min(positionSec, duration)
         : null;
@@ -406,8 +413,8 @@ export function createYouTubeMediaPlayerAdapter(
         : 0;
     },
     getDuration: () => {
-      const duration = player?.getDuration() ?? 0;
-      return Number.isFinite(duration) && duration > 0 ? duration : null;
+      const duration = youtubeDuration();
+      return duration > 0 ? duration : null;
     },
     seek: async (positionSec: number) => {
       if (!player || Math.abs(player.getCurrentTime() - positionSec) < 0.01) return;

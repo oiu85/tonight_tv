@@ -1,8 +1,6 @@
 export const LOCAL_P2P_TRACKERS = Object.freeze([
   "wss://tracker.openwebtorrent.com",
   "wss://tracker.webtorrent.dev",
-  "wss://tracker.btorrent.xyz",
-  "wss://tracker.files.fm:7073/announce",
 ] as const);
 
 export const LOCAL_P2P_SERVICE_WORKER_URL = "/webtorrent/sw.min.js";

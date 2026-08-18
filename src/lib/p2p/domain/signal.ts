@@ -53,6 +53,17 @@ export function shouldInitiateSignal(localSessionId: string, remoteSessionId: st
   return localSessionId > remoteSessionId;
 }
 
+export function shouldInitiateRoomPeer(options: Readonly<{
+  localSessionId: string;
+  remoteSessionId: string;
+  localRole: LocalP2pSignalRole;
+  remoteRole: LocalP2pSignalRole | null;
+}>): boolean {
+  if (options.localRole === "seed") return true;
+  if (options.remoteRole === "seed") return false;
+  return shouldInitiateSignal(options.localSessionId, options.remoteSessionId);
+}
+
 export function signalPeerKey(infoHash: string, remoteSessionId: string): string {
   return `${infoHash}:${remoteSessionId}`;
 }

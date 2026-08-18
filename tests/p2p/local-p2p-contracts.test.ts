@@ -4,6 +4,7 @@ import {
   magnetWithTrackers,
   mimeTypeFromFileName,
   parseLocalP2pSignal,
+  shouldInitiateRoomPeer,
   shouldInitiateSignal,
 } from "../../src/lib/p2p/local-p2p-contracts";
 
@@ -31,6 +32,18 @@ describe("local P2P descriptors", () => {
   it("picks a stable WebRTC initiator from session ids", () => {
     expect(shouldInitiateSignal("b-session", "a-session")).toBe(true);
     expect(shouldInitiateSignal("a-session", "b-session")).toBe(false);
+    expect(shouldInitiateRoomPeer({
+      localSessionId: "a-session",
+      remoteSessionId: "z-session",
+      localRole: "seed",
+      remoteRole: "leech",
+    })).toBe(true);
+    expect(shouldInitiateRoomPeer({
+      localSessionId: "z-session",
+      remoteSessionId: "a-session",
+      localRole: "leech",
+      remoteRole: "seed",
+    })).toBe(false);
   });
 
   it("infers a playable MIME type from the original file name", () => {

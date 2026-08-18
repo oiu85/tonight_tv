@@ -1,5 +1,5 @@
 import type { MediaSourceType } from "./media-queue-service";
-import type { TorrentErrorCategory } from "../torrent/torrent-contracts";
+import type { TorrentErrorCategory } from "../torrent/domain";
 
 export type MediaRuntimeSourceKind = "direct" | "hls" | "youtube" | "local_p2p";
 

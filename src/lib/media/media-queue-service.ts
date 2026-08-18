@@ -10,7 +10,7 @@ import {
 } from "../playback/playback-command-service";
 import { createBrowserSupabaseClient } from "../supabase/browser";
 import type { Database } from "../supabase/database.types";
-import { parseTorrentFileIdentity } from "../torrent/torrent-manifest";
+import { parseTorrentFileIdentity } from "../torrent/domain";
 import type { LocalP2pDescriptor } from "../p2p/local-p2p-contracts";
 import { extractYouTubeVideoId } from "./youtube-identity";
 

@@ -203,6 +203,13 @@ export function createLocalP2pMediaPlayerAdapter(
     if (destroyed) {
       throw new MediaRuntimeError("p2p_stream_failed", "The device-stream player was destroyed.");
     }
+    if (next?.id === mediaId && descriptor) {
+      lastError = null;
+      await runtime.attachToMediaElement(descriptor, media);
+      ready = media.readyState >= HAVE_METADATA;
+      settleReady();
+      return;
+    }
     await clearSource();
     lastError = null;
     playbackPermission = "unknown";

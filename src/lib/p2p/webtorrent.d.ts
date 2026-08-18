@@ -48,6 +48,8 @@ declare module "webtorrent" {
     constructor(options?: WebTorrentOptions);
     readonly destroyed: boolean;
     createServer(options: { controller: ServiceWorkerRegistration }): unknown;
+    get(torrentId: string): WebTorrentTorrent | undefined;
+    readonly torrents: readonly WebTorrentTorrent[];
     seed(input: File | Blob, options: TorrentOptions, onseed: (torrent: WebTorrentTorrent) => void): WebTorrentTorrent;
     add(torrentId: string, options: TorrentOptions, ontorrent: (torrent: WebTorrentTorrent) => void): WebTorrentTorrent;
     remove(torrentId: string | WebTorrentTorrent, options: { destroyStore?: boolean }, callback: (error?: Error | null) => void): void;

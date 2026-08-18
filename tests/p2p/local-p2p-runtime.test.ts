@@ -57,6 +57,7 @@ function browserSupportFixture() {
 function runtimeFixture() {
   browserSupportFixture();
   const torrent = new FakeTorrent();
+  const torrentsList: FakeTorrent[] = [];
   const registration = {} as ServiceWorkerRegistration;
   const createServer = vi.fn();
   const remove = vi.fn(
@@ -86,16 +87,23 @@ function runtimeFixture() {
       _options: unknown,
       callback: (joined: FakeTorrent) => void,
     ) => {
+      if (torrentsList.includes(torrent)) {
+        throw new Error(`Cannot add duplicate torrent ${infoHash}`);
+      }
+      torrentsList.push(torrent);
       callback(torrent);
       return torrent;
     },
   );
+  const get = vi.fn((id: string) => torrentsList.find((item) => item.infoHash === id.toLowerCase()));
   const client = {
     createServer,
     remove,
     destroy,
     seed,
     add,
+    get,
+    torrents: torrentsList,
     destroyed: false,
   };
   const WebTorrentClass = vi.fn(function WebTorrentClass() {
@@ -280,6 +288,26 @@ describe("local P2P browser runtime", () => {
     expect(sent.some((message) => message && typeof message === "object" && (message as { kind: string }).kind === "hello")).toBe(true);
 
     await runtime.destroy();
+    await fixture.runtime.destroy();
+  });
+
+  it("reuses an already added torrent instead of crashing on duplicate add", async () => {
+    const fixture = runtimeFixture();
+    const descriptor = {
+      infoHash,
+      magnetUri,
+      fileName: "fixture.mp4",
+      fileSize: 7,
+      mimeType: "video/mp4",
+    } as const;
+    const video = document.createElement("video");
+
+    await fixture.runtime.attachToMediaElement(descriptor, video);
+    await fixture.runtime.attachToMediaElement(descriptor, video);
+
+    expect(fixture.client.add).toHaveBeenCalledTimes(1);
+    expect(fixture.torrent.files[0].streamTo).toHaveBeenCalled();
+
     await fixture.runtime.destroy();
   });
 });

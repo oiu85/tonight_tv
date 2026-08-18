@@ -9,7 +9,7 @@ import {
 } from "./html-media-adapter";
 import { MediaRuntimeError } from "./media-source";
 import type { YouTubeMediaPlayerAdapter } from "./youtube-media-adapter";
-import type { WebtorMediaPlayerAdapter } from "./webtor-media-adapter";
+import type { WebtorMediaPlayerAdapter } from "../torrent/infrastructure/webtor/media-player-adapter";
 import type { LocalP2pMediaPlayerAdapter } from "./local-p2p-media-adapter";
 
 export type RoomMediaPlayerAdapter = PlayerSyncAdapter &
@@ -104,7 +104,7 @@ export function createRoomMediaPlayerAdapter(
   }
 
   async function createWebtor(): Promise<WebtorMediaPlayerAdapter> {
-    const { createWebtorMediaPlayerAdapter } = await import("./webtor-media-adapter");
+    const { createWebtorMediaPlayerAdapter } = await import("../torrent/infrastructure/webtor/media-player-adapter");
     webtorMount.replaceChildren();
     const adapter = createWebtorMediaPlayerAdapter({ mount: webtorMount, events });
     adapter.setVolume(volume);
