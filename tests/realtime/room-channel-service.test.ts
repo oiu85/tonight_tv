@@ -473,4 +473,21 @@ describe("room channel lifecycle", () => {
     expect(received).toHaveBeenCalledWith({ kind: "signal", from: "other" });
     stop();
   });
+
+  it("queues device-stream signaling until the private room channel is subscribed", async () => {
+    const { client, channel } = createClientMock();
+    const service = createRoomChannelService(client);
+
+    await service.sendP2pSignal({ kind: "hello", infoHash: "abc", from: sessionId });
+    expect(channel.send).not.toHaveBeenCalled();
+
+    await connectSubscribed(service, channel, createOptions(createHandlers()));
+    await vi.waitFor(() => expect(channel.send).toHaveBeenCalled());
+
+    expect(channel.send).toHaveBeenCalledWith({
+      type: "broadcast",
+      event: "p2p_signal",
+      payload: { kind: "hello", infoHash: "abc", from: sessionId },
+    });
+  });
 });

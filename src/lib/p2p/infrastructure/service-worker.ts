@@ -29,7 +29,7 @@ function waitForActivated(registration: ServiceWorkerRegistration): Promise<Serv
   });
 }
 
-function waitForController(timeoutMs = 8_000): Promise<void> {
+function waitForController(timeoutMs = 15_000): Promise<void> {
   if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) {
     return Promise.reject(new LocalP2pError(
       "p2p_service_worker_unavailable",
@@ -71,7 +71,7 @@ export function registerLocalP2pServiceWorker(): Promise<ServiceWorkerRegistrati
     .then(async (registration) => {
       await navigator.serviceWorker.ready;
       if (!navigator.serviceWorker.controller) {
-        await waitForController().catch(() => undefined);
+        await waitForController();
       }
       return registration;
     })

@@ -11,7 +11,12 @@ import {
 import { LocalP2pError } from "../domain/errors";
 import { LOCAL_P2P_RTC_CONFIG } from "../domain/ice";
 import { magnetWithTrackers } from "../domain/magnet";
-import { IDLE_LOCAL_P2P_STATE, type LocalP2pDescriptor, type LocalP2pState } from "../domain/types";
+import {
+  IDLE_LOCAL_P2P_STATE,
+  type LocalP2pDescriptor,
+  type LocalP2pState,
+  type LocalP2pStatus,
+} from "../domain/types";
 import { createBlobPlaybackRegistry } from "./blob-playback";
 import { assertBrowserP2pSupport, validateLocalP2pDescriptor } from "./browser-guard";
 import { registerLocalP2pServiceWorker } from "./service-worker";
@@ -68,6 +73,18 @@ export function createLocalP2pRuntime(dependencies: LocalP2pRuntimeDependencies 
   const publishError = (error: LocalP2pError) => publish({ ...state, status: "error", error });
   const hostingFor = (infoHash: string | null) => Boolean(infoHash && seedFiles.has(infoHash));
 
+  function torrentPlaybackStatus(torrent: WebTorrentTorrent, infoHash: string): LocalP2pStatus {
+    const hosting = hostingFor(infoHash);
+    const hasBytes = torrent.progress > 0 || (torrent.downloaded ?? 0) > 0;
+    if (hosting) {
+      return torrent.numPeers > 0 ? "ready" : "seeding";
+    }
+    if (!hasBytes) {
+      return torrent.numPeers > 0 ? "buffering" : "connecting";
+    }
+    return torrent.numPeers > 0 ? "ready" : "no_peers";
+  }
+
   function track(torrent: WebTorrentTorrent, role: "seed" | "leech"): void {
     const infoHash = torrentInfoHash(torrent);
     if (!infoHash) {
@@ -78,11 +95,11 @@ export function createLocalP2pRuntime(dependencies: LocalP2pRuntimeDependencies 
     torrents.set(infoHash, torrent);
     mesh.bind(infoHash, torrent, role);
     let lastPeerCount = torrent.numPeers;
-    let lastStatus = torrent.numPeers > 0 ? "ready" : role === "seed" ? "seeding" : "no_peers";
+    let lastStatus = torrentPlaybackStatus(torrent, infoHash);
     let trailingTimer: ReturnType<typeof setTimeout> | null = null;
     const publishMetrics = () => {
       if (torrent.destroyed || !torrents.has(infoHash)) return;
-      const nextStatus = torrent.numPeers > 0 ? "ready" : seedFiles.has(infoHash) ? "seeding" : "no_peers";
+      const nextStatus = torrentPlaybackStatus(torrent, infoHash);
       lastPeerCount = torrent.numPeers;
       lastStatus = nextStatus;
       publish({
@@ -98,7 +115,7 @@ export function createLocalP2pRuntime(dependencies: LocalP2pRuntimeDependencies 
     };
     const refresh = (immediate = false) => {
       if (torrent.destroyed || !torrents.has(infoHash)) return;
-      const nextStatus = torrent.numPeers > 0 ? "ready" : seedFiles.has(infoHash) ? "seeding" : "no_peers";
+      const nextStatus = torrentPlaybackStatus(torrent, infoHash);
       const statusChanged = nextStatus !== lastStatus || torrent.numPeers !== lastPeerCount;
       if (immediate || statusChanged) {
         if (trailingTimer !== null) {
@@ -139,14 +156,15 @@ export function createLocalP2pRuntime(dependencies: LocalP2pRuntimeDependencies 
         metricsTimer = setInterval(() => {
           const torrent = state.infoHash ? torrents.get(state.infoHash) : null;
           if (!torrent || torrent.destroyed) return;
+          const infoHash = torrent.infoHash.toLowerCase();
           publish({
             ...state,
-            status: torrent.numPeers > 0 ? "ready" : seedFiles.has(torrent.infoHash.toLowerCase()) ? "seeding" : "no_peers",
+            status: torrentPlaybackStatus(torrent, infoHash),
             peerCount: torrent.numPeers,
             uploadSpeed: torrent.uploadSpeed,
             downloadSpeed: torrent.downloadSpeed,
             progress: torrent.progress,
-            hosting: hostingFor(torrent.infoHash.toLowerCase()),
+            hosting: hostingFor(infoHash),
           });
         }, metricIntervalMs);
         publish(IDLE_LOCAL_P2P_STATE);

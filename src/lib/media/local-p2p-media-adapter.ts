@@ -129,14 +129,23 @@ export function createLocalP2pMediaPlayerAdapter(
     return state.status === "connecting" || state.status === "no_peers" || state.status === "buffering" || state.progress < 0.05;
   }
 
+  function hasUsableTimeline(): boolean {
+    return media.readyState >= HAVE_METADATA && Number.isFinite(media.duration) && media.duration > 0;
+  }
+
   listen("loadedmetadata", () => {
-    ready = media.readyState >= HAVE_METADATA;
+    ready = hasUsableTimeline();
     settleReady();
   });
   listen("durationchange", () => {
     events.onDurationChange?.(Number.isFinite(media.duration) ? media.duration : null);
+    if (hasUsableTimeline()) {
+      ready = true;
+      settleReady();
+    }
   });
   listen("canplay", () => {
+    if (!hasUsableTimeline()) return;
     ready = true;
     events.onBufferingChange?.(false);
     settleReady();
@@ -206,7 +215,7 @@ export function createLocalP2pMediaPlayerAdapter(
     if (next?.id === mediaId && descriptor) {
       lastError = null;
       await runtime.attachToMediaElement(descriptor, media);
-      ready = media.readyState >= HAVE_METADATA;
+      ready = hasUsableTimeline();
       settleReady();
       return;
     }
@@ -230,7 +239,7 @@ export function createLocalP2pMediaPlayerAdapter(
       infoHash = resolved.infoHash;
       await runtime.attachToMediaElement(resolved, media);
       if (destroyed || loadGeneration !== generation) return;
-      ready = media.readyState >= HAVE_METADATA;
+      ready = hasUsableTimeline();
       settleReady();
     } catch (cause) {
       if (destroyed || loadGeneration !== generation) return;
@@ -276,10 +285,10 @@ export function createLocalP2pMediaPlayerAdapter(
     loadMedia,
     waitUntilReady: () => {
       if (lastError?.fatal) return Promise.reject(lastError);
-      if (ready) return Promise.resolve();
+      if (ready && hasUsableTimeline()) return Promise.resolve();
       return new Promise<void>((resolve, reject) => readyWaiters.add(Object.freeze({ resolve, reject })));
     },
-    isReady: () => ready,
+    isReady: () => ready && hasUsableTimeline(),
     isSeekable: (position: number) => ready && Number.isFinite(position) && position >= 0 && (!Number.isFinite(media.duration) || position <= media.duration),
     getSeekableTarget: (position: number) => ready && Number.isFinite(position) && position >= 0 ? Math.min(position, Number.isFinite(media.duration) ? media.duration : position) : null,
     isPaused: () => media.paused,

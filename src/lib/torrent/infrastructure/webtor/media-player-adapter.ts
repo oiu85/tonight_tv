@@ -40,7 +40,9 @@ export async function loadWebtorSdk(): Promise<WebtorGenerator> {
     for (const entry of detachedVideos) entry.parent.removeChild(entry.video);
     const restoreVideos = () => {
       for (const entry of detachedVideos) {
-        if (!entry.video.isConnected) entry.parent.insertBefore(entry.video, entry.next);
+        if (entry.video.isConnected) continue;
+        if (entry.next?.parentNode === entry.parent) entry.parent.insertBefore(entry.video, entry.next);
+        else entry.parent.appendChild(entry.video);
       }
     };
     let settled = false;
@@ -93,6 +95,7 @@ const FEATURES = Object.freeze({
   embed: false,
   volume: true,
   subtitles: true,
+  opensubtitles: true,
 });
 
 export type WebtorMediaPlayerAdapter = PlayerSyncAdapter & Readonly<{
@@ -269,6 +272,8 @@ export function createWebtorMediaPlayerAdapter(options: Options): WebtorMediaPla
       width: "100%",
       height: "100%",
       baseUrl: WEBTOR_PUBLIC_BASE_URL,
+      title: media.title,
+      userlang: document.documentElement.lang || navigator.language,
       features: FEATURES,
       on: (event) => handle(event, localGeneration),
     });

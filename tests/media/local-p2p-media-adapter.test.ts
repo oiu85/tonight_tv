@@ -171,4 +171,33 @@ describe("local P2P media adapter", () => {
     expect(onError).toHaveBeenCalledWith(expect.objectContaining({ fatal: false }));
     adapter.destroy();
   });
+
+  it("does not become ready from canplay until the video reports a real duration", async () => {
+    const runtime = runtimeMock(false);
+    const element = document.createElement("video");
+    Object.defineProperties(element, {
+      paused: { configurable: true, get: () => true },
+      readyState: { configurable: true, get: () => 0 },
+      duration: { configurable: true, get: () => Number.NaN },
+    });
+    element.load = vi.fn();
+    const adapter = createLocalP2pMediaPlayerAdapter({
+      mediaElement: element,
+      roomId,
+      isOwner: false,
+      runtime,
+      sourceService: sourceServiceMock(),
+    });
+
+    await adapter.loadMedia(syncMedia);
+    element.dispatchEvent(new Event("canplay"));
+    element.dispatchEvent(new Event("loadedmetadata"));
+
+    expect(adapter.isReady()).toBe(false);
+    await expect(Promise.race([
+      adapter.waitUntilReady().then(() => "ready"),
+      Promise.resolve("pending"),
+    ])).resolves.toBe("pending");
+    adapter.destroy();
+  });
 });

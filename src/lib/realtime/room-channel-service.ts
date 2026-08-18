@@ -396,6 +396,8 @@ export function createRoomChannelService(
   let disconnecting = false;
   let generation = 0;
   const p2pSignalListeners = new Set<(payload: unknown) => void>();
+  const pendingP2pSignals: unknown[] = [];
+  const PENDING_P2P_SIGNAL_LIMIT = 64;
 
   function setStatus(
     nextStatus: RoomChannelStatus,
@@ -593,6 +595,7 @@ export function createRoomChannelService(
     cancelPendingConnect = null;
     pendingReconciliation = null;
     queuedReconciliationReason = null;
+    pendingP2pSignals.length = 0;
     watchers = Object.freeze([]);
 
     let cleanupFailed = false;
@@ -723,6 +726,7 @@ export function createRoomChannelService(
               everSubscribed = true;
               needsReconnectReconciliation = false;
               setStatus("subscribed");
+              void flushPendingP2pSignals();
 
               if (!settled) {
                 settled = true;
@@ -797,10 +801,29 @@ export function createRoomChannelService(
 
   async function sendP2pSignal(payload: unknown): Promise<void> {
     if (!channel || status !== "subscribed") {
-      throw new RoomChannelError(
-        "subscribe_failed",
-        "The private room channel is not ready for P2P signaling.",
-      );
+      pendingP2pSignals.push(payload);
+      if (pendingP2pSignals.length > PENDING_P2P_SIGNAL_LIMIT) {
+        pendingP2pSignals.splice(0, pendingP2pSignals.length - PENDING_P2P_SIGNAL_LIMIT);
+      }
+      return;
+    }
+    await deliverP2pSignal(payload);
+  }
+
+  async function flushPendingP2pSignals(): Promise<void> {
+    if (!channel || status !== "subscribed" || pendingP2pSignals.length === 0) {
+      return;
+    }
+    const queued = pendingP2pSignals.splice(0);
+    for (const payload of queued) {
+      await deliverP2pSignal(payload);
+    }
+  }
+
+  async function deliverP2pSignal(payload: unknown): Promise<void> {
+    if (!channel || status !== "subscribed") {
+      pendingP2pSignals.push(payload);
+      return;
     }
     const result = await channel.send({
       type: "broadcast",

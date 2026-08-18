@@ -21,6 +21,7 @@ import { parseLocalP2pSignal, type LocalP2pState } from "@/lib/p2p/local-p2p-con
 import {
   destroyBrowserLocalP2pRuntime,
   getBrowserLocalP2pRuntime,
+  registerLocalP2pServiceWorker,
 } from "@/lib/p2p/local-p2p-runtime";
 import {
   getBrowserLocalP2pSourceService,
@@ -500,6 +501,11 @@ export function RoomClient({ roomId }: { roomId: string }) {
     resetBrowserLocalP2pSourceService();
     void destroyBrowserLocalP2pRuntime().catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    if (phase !== "room") return;
+    void registerLocalP2pServiceWorker().catch(() => undefined);
+  }, [phase]);
 
   useEffect(() => {
     if (phase !== "room") return;

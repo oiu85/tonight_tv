@@ -11,6 +11,7 @@ import type { SubtitleCandidate, TorrentInspection, TorrentManifestFile } from "
 import { inspectTorrent } from "@/lib/torrent/application/browser-inspection";
 import {
   extractInfoHashFromTorrentInput,
+  inspectionFromMagnetIdentity,
   parseMagnetIdentity,
   isWebtorAutoselectPath,
   defaultSubtitleFileIndexes,
@@ -200,24 +201,7 @@ function MediaDialogContent({
         // remote file manifest.
         try {
           const identity = await parseMagnetIdentity(magnetUri);
-          currentInspection = {
-            infoHash: identity.infoHash,
-            torrentName: identity.name,
-            status: "ready",
-            files: [{
-              index: 0,
-              path: "__webtor_autoselect__.mp4",
-              name: "video.mp4",
-              sizeBytes: 0,
-              extension: "mp4",
-              kind: "video",
-              playableCandidate: true,
-              candidateRank: 0,
-            }],
-            totalFiles: 1,
-            truncated: false,
-            magnetUri: identity.magnetUri,
-          };
+          currentInspection = inspectionFromMagnetIdentity(identity);
           currentVideo = currentInspection.files[0];
         } catch (cause) {
           setInspectionError(cause instanceof Error ? cause.message : t("inspectFirst"));
@@ -420,6 +404,7 @@ function MediaDialogContent({
             {subtitleCandidates.length > 0 ? (
               <fieldset className="tt-fieldset">
                 <legend>{t("importSubtitles")}</legend>
+                <p className="tt-secondary">{t("subtitlesAutoSelected")}</p>
                 {subtitleCandidates.map((candidate) => (
                   <label key={candidate.file.index} className="tt-torrent-file-option">
                     <input type="checkbox" checked={selectedSubtitleIndexes.has(candidate.file.index)} onChange={(event) => setSelectedSubtitleIndexes((current) => { const next = new Set(current); if (event.target.checked) next.add(candidate.file.index); else next.delete(candidate.file.index); return next; })} />

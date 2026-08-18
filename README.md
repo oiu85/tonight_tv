@@ -8,6 +8,17 @@ Torrent identity and selected file path in Supabase. A local `.torrent` file is
 parsed in the browser and converted to a Magnet URI; movie bytes never flow
 through Supabase, Next.js, or Tonight TV-owned infrastructure.
 
+The torrent feature is organized by responsibility under `src/lib/torrent`:
+
+- `domain` owns identity parsing, manifest classification, and subtitle matching.
+- `application` owns browser inspection and server playback use cases.
+- `infrastructure/webtor` owns public embed playback and optional gateway adapters.
+- `infrastructure/server` owns authenticated route adapters and gateway configuration.
+
+Local `.torrent` metadata is inspected without a remote request. Matching SRT/VTT
+sidecars are selected automatically for import. Magnet, info-hash, and webtor.io
+inputs remain identity-only and never wait for a remote file manifest.
+
 Tonight TV is a private synchronized watch-room built with Next.js and Supabase.
 
 ## Development foundation

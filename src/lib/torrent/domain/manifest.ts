@@ -13,6 +13,7 @@ import {
 const INFO_HASH_PATTERN = /^[a-f0-9]{40}$/i;
 const WEBTOR_HOST_PATTERN = /^(?:www\.)?webtor\.io$/i;
 const MAGNET_INFO_HASH_PATTERN = /(?:^|[?&])xt=urn:btih:([a-f0-9]{40}|[a-z2-7]{32})/i;
+const BASE32_ALPHABET = "abcdefghijklmnopqrstuvwxyz234567";
 const VIDEO_EXTENSIONS = new Set(["mp4", "m4v", "mkv", "webm", "avi", "ts", "vob"]);
 const SUBTITLE_EXTENSIONS = new Set(["srt", "vtt"]);
 const AUDIO_EXTENSIONS = new Set(["mp3", "wav", "ogg", "flac", "m4a", "aac"]);
@@ -61,6 +62,17 @@ export function extractInfoHashFromTorrentInput(input: string): string | null {
   if (trimmed.toLowerCase().startsWith("magnet:?")) {
     const match = MAGNET_INFO_HASH_PATTERN.exec(trimmed);
     if (match && INFO_HASH_PATTERN.test(match[1])) return match[1].toLowerCase();
+    if (match && match[1].length === 32) {
+      let bits = "";
+      for (const character of match[1].toLowerCase()) {
+        const value = BASE32_ALPHABET.indexOf(character);
+        if (value < 0) return null;
+        bits += value.toString(2).padStart(5, "0");
+      }
+      return Array.from({ length: 20 }, (_, index) =>
+        Number.parseInt(bits.slice(index * 8, index * 8 + 8), 2).toString(16).padStart(2, "0"),
+      ).join("");
+    }
   }
 
   return null;
@@ -287,13 +299,14 @@ export function rankSubtitleCandidates(
       const marker = tokens.map((token) => LANGUAGE_MARKERS[token]).find(Boolean);
       const forced = tokens.includes("forced");
       const sdh = tokens.includes("sdh") || tokens.includes("hi");
-      let score = subtitleDir === videoDir ? 50 : 0;
-      if (subtitleStem === videoStem) score += 100;
-      else if (subtitleStem.startsWith(videoStem) || videoStem.startsWith(subtitleStem)) score += 70;
+      let stemScore = 0;
+      if (subtitleStem === videoStem) stemScore = 100;
+      else if (subtitleStem.startsWith(videoStem) || videoStem.startsWith(subtitleStem)) stemScore = 70;
       else {
         const shared = videoStem.split(" ").filter((token) => subtitleStem.includes(token)).length;
-        score += Math.min(shared * 8, 40);
+        stemScore = Math.min(shared * 8, 40);
       }
+      const score = stemScore + (subtitleDir === videoDir ? 20 : 0);
       const qualifiers = [marker?.[1], forced ? "Forced" : null, sdh ? "SDH" : null].filter(Boolean);
       return Object.freeze({
         file,
@@ -304,7 +317,7 @@ export function rankSubtitleCandidates(
         sdh,
       });
     })
-    .filter((candidate) => candidate.score >= 30)
+    .filter((candidate) => candidate.score >= 50)
     .sort((a, b) => b.score - a.score || a.file.name.localeCompare(b.file.name));
 }
 

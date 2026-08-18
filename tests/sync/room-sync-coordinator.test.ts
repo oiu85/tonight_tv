@@ -29,6 +29,7 @@ const serverNowMs = Date.parse("2026-08-17T12:00:00.000Z");
 
 function makeSnapshot(
   playback: Partial<RoomSnapshot["playback"]> = {},
+  media: Partial<NonNullable<RoomSnapshot["current_media"]>> = {},
 ): RoomSnapshot {
   const timestamp = new Date(serverNowMs).toISOString();
   return {
@@ -78,6 +79,7 @@ function makeSnapshot(
             queue_position: 0,
             created_at: timestamp,
             updated_at: timestamp,
+            ...media,
           },
     subtitles: [],
     queue: [],
@@ -237,7 +239,10 @@ function createClockFake() {
   };
 }
 
-function createHarness(initialSnapshot = makeSnapshot()) {
+function createHarness(
+  initialSnapshot = makeSnapshot(),
+  options: { mediaReadyTimeoutMs?: number } = {},
+) {
   let activeSnapshot = initialSnapshot;
   let monotonicMs = 0;
   const fetchSnapshot = vi.fn(async () => activeSnapshot);
@@ -256,6 +261,7 @@ function createHarness(initialSnapshot = makeSnapshot()) {
     player,
     monotonicNowMs: () => monotonicMs,
     longHiddenThresholdMs: 1_000,
+    mediaReadyTimeoutMs: options.mediaReadyTimeoutMs,
   });
 
   return {
@@ -716,5 +722,21 @@ describe("room synchronization lifecycle", () => {
     expect(harness.channel.connect).toHaveBeenCalledOnce();
     expect(harness.coordinator.getState().channelStatus).toBe("subscribed");
     expect(harness.coordinator.getState().status).toBe("error");
+  });
+
+  it("keeps waiting for a device stream instead of failing the room when metadata is slow", async () => {
+    const harness = createHarness(
+      makeSnapshot({}, { source_type: "local_p2p", source_url: null }),
+      { mediaReadyTimeoutMs: 20 },
+    );
+    harness.player.ready = false;
+    harness.player.waitUntilReady = () => new Promise(() => undefined);
+
+    await expect(harness.coordinator.start(startOptions)).resolves.toBeUndefined();
+
+    expect(harness.channel.connect).toHaveBeenCalledOnce();
+    expect(harness.coordinator.getState().channelStatus).toBe("subscribed");
+    expect(harness.coordinator.getState().status).not.toBe("error");
+    expect(["starting", "aligning"]).toContain(harness.coordinator.getState().status);
   });
 });

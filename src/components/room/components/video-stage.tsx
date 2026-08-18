@@ -227,7 +227,12 @@ export const VideoStage = memo(function VideoStage({
   const playback = snapshot.playback;
   const empty = playback.status === "idle" || !snapshot.current_media;
   const blocked = status === "playback_blocked" || mediaError?.category === "autoplay_permission_blocked";
-  const connectingP2p = localP2pActive && (localP2pState.status === "connecting" || localP2pState.status === "preparing" || localP2pState.status === "hashing");
+  const connectingP2p = localP2pActive && (
+    localP2pState.status === "connecting"
+    || localP2pState.status === "preparing"
+    || localP2pState.status === "hashing"
+    || localP2pState.status === "buffering"
+  );
   const reconnecting =
     !empty &&
     (reason === "visibility_resume" || reason === "realtime_reconnected") &&

@@ -45,6 +45,7 @@ const HARD_SEEK_COOLDOWN_MS = 4_000;
 const SEEK_STORM_OVERRIDE_SEC = 8;
 const DEFAULT_LONG_HIDDEN_THRESHOLD_MS = 15_000;
 const DEFAULT_MEDIA_READY_TIMEOUT_MS = 30_000;
+const DEVICE_STREAM_READY_TIMEOUT_MS = 90_000;
 
 export type RoomSyncStatus =
   | "idle"
@@ -204,10 +205,12 @@ export function createRoomSyncCoordinator(
     (() => (typeof performance === "undefined" ? Date.now() : performance.now()));
   const longHiddenThresholdMs =
     dependencies.longHiddenThresholdMs ?? DEFAULT_LONG_HIDDEN_THRESHOLD_MS;
-  const mediaReadyTimeoutMs =
-    dependencies.mediaReadyTimeoutMs ?? DEFAULT_MEDIA_READY_TIMEOUT_MS;
 
   async function waitForMediaReady(): Promise<void> {
+    const deviceStream = loadedMedia?.sourceType === "local_p2p";
+    const timeoutMs =
+      dependencies.mediaReadyTimeoutMs ??
+      (deviceStream ? DEVICE_STREAM_READY_TIMEOUT_MS : DEFAULT_MEDIA_READY_TIMEOUT_MS);
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     try {
       await Promise.race([
@@ -217,12 +220,21 @@ export function createRoomSyncCoordinator(
             reject(new MediaRuntimeError(
               "unknown_media_error",
               "The media player did not become ready within 30 seconds.",
+              { fatal: !deviceStream },
             ));
-          }, mediaReadyTimeoutMs);
+          }, timeoutMs);
         }),
       ]);
     } catch (cause) {
       if (cause instanceof MediaRuntimeError) {
+        if (deviceStream && !player.isReady()) {
+          setStatus(
+            player.getMediaId() === canonicalPlayback?.current_media_id
+              ? "aligning"
+              : "starting",
+          );
+          return;
+        }
         handleMediaError(cause);
         return;
       }

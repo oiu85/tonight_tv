@@ -26,6 +26,7 @@ class FakeTorrent {
   uploadSpeed = 0;
   downloadSpeed = 0;
   progress = 0;
+  downloaded = 0;
 
   on(name: string, listener: Listener) {
     this.listeners.set(name, [...(this.listeners.get(name) ?? []), listener]);
@@ -206,6 +207,7 @@ describe("local P2P browser runtime", () => {
     );
     expect(fixture.torrent.files[0].streamTo).toHaveBeenCalledWith(video);
     expect(fixture.torrent.files[0].select).toHaveBeenCalled();
+    expect(fixture.runtime.getState().status).toBe("connecting");
 
     await fixture.runtime.leaveLocalStream(infoHash);
 

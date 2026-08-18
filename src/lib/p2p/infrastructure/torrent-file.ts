@@ -39,10 +39,13 @@ export function attachTorrentFile(file: WebTorrentFile, element: HTMLMediaElemen
   prepareVideoElement(element);
   const streamURL = readStreamURL(file);
   if (streamURL) {
-    element.src = streamURL;
-    return;
+    if (element.getAttribute("src") !== streamURL) {
+      element.src = streamURL;
+    }
+  } else {
+    file.streamTo(element);
   }
-  file.streamTo(element);
+  element.load();
 }
 
 export function removeTorrent(client: WebTorrent, torrent: WebTorrentTorrent): Promise<void> {
