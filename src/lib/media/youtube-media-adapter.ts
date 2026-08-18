@@ -8,9 +8,7 @@ import {
   MediaRuntimeError,
 } from "./media-source";
 import type { PlayerSyncAdapter, SyncMedia } from "../sync/sync-core";
-import {
-  isValidYouTubeVideoId,
-} from "./youtube-identity";
+import { extractYouTubeVideoId } from "./youtube-identity";
 import {
   loadYouTubeIframeApi,
   YOUTUBE_PLAYER_STATE,
@@ -260,8 +258,11 @@ export function createYouTubeMediaPlayerAdapter(
       player?.pauseVideo();
       return;
     }
-    const nextVideoId = media.youtubeVideoId?.trim() ?? "";
-    if (media.sourceType !== "youtube" || !isValidYouTubeVideoId(nextVideoId)) {
+    const nextVideoId =
+      extractYouTubeVideoId(media.youtubeVideoId) ??
+      extractYouTubeVideoId(media.sourceUrl) ??
+      "";
+    if (media.sourceType !== "youtube" || !nextVideoId) {
       const error = classifyYouTubeError(2);
       reportError(error);
       throw error;

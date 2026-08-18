@@ -1176,12 +1176,18 @@ export function RoomClient({ roomId }: { roomId: string }) {
                 {
                   value: "chat",
                   label: "Chat",
-                  badge: String(syncState.chatMessages.length || undefined),
+                  badge:
+                    syncState.chatMessages.length > 0
+                      ? String(syncState.chatMessages.length)
+                      : undefined,
                 },
                 {
                   value: "queue",
                   label: "Up Next",
-                  badge: String(currentSnapshot.queue.length || undefined),
+                  badge:
+                    currentSnapshot.queue.length > 0
+                      ? String(currentSnapshot.queue.length)
+                      : undefined,
                 },
               ]}
             />

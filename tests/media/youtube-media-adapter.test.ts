@@ -115,4 +115,23 @@ describe("YouTube media adapter", () => {
     });
     expect(loadApi).not.toHaveBeenCalled();
   });
+
+  it("extracts a YouTube video ID from the watch URL when the snapshot omits it", async () => {
+    const fixture = createYouTubeFixture();
+    const adapter = createYouTubeMediaPlayerAdapter(document.createElement("div"), {
+      loadApi: vi.fn(async () => fixture.api),
+    });
+
+    await adapter.loadMedia({
+      ...media,
+      youtubeVideoId: null,
+      sourceUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    });
+
+    expect(fixture.player.cueVideoById).toHaveBeenCalledWith({
+      videoId: "dQw4w9WgXcQ",
+      startSeconds: 0,
+    });
+    adapter.destroy();
+  });
 });

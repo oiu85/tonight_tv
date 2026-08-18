@@ -618,4 +618,20 @@ describe("room synchronization lifecycle", () => {
 
     expect(harness.coordinator.getBehindSeconds()).toBe(0);
   });
+
+  it("keeps the realtime channel connected when the player cannot load media", async () => {
+    const harness = createHarness();
+    harness.player.loadMedia = vi.fn(async () => {
+      throw new MediaRuntimeError(
+        "youtube_invalid_video_id",
+        "This YouTube video ID is invalid.",
+      );
+    });
+
+    await expect(harness.coordinator.start(startOptions)).resolves.toBeUndefined();
+
+    expect(harness.channel.connect).toHaveBeenCalledOnce();
+    expect(harness.coordinator.getState().channelStatus).toBe("subscribed");
+    expect(harness.coordinator.getState().status).toBe("error");
+  });
 });

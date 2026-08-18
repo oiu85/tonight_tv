@@ -25,6 +25,7 @@ import {
   type ClockCalibrator,
 } from "./clock-calibrator";
 import { MediaRuntimeError } from "../media/media-source";
+import { extractYouTubeVideoId } from "../media/youtube-identity";
 import {
   calculateDrift,
   comparePlaybackVersions,
@@ -149,7 +150,9 @@ function snapshotMedia(snapshot: RoomSnapshot): SyncMedia | null {
       title: media.title,
       sourceUrl: media.source_url,
       sourceType: media.source_type,
-      youtubeVideoId: media.youtube_video_id,
+      youtubeVideoId:
+        extractYouTubeVideoId(media.youtube_video_id) ??
+        extractYouTubeVideoId(media.source_url),
       sourceRevision: media.source_revision,
       torrentInfoHash: media.torrent_info_hash,
       torrentFileIndex: media.torrent_file_index,
@@ -592,10 +595,13 @@ export function createRoomSyncCoordinator(
     }
 
     if (!media || media.id !== nextState.current_media_id) {
-      throw new RoomSyncError(
-        "missing_media_metadata",
-        "The canonical playback state referenced media missing from the room snapshot.",
+      handleMediaError(
+        new MediaRuntimeError(
+          "unknown_media_error",
+          "The canonical playback state referenced media missing from the room snapshot.",
+        ),
       );
+      return;
     }
 
     const sourceChanged =
@@ -617,13 +623,28 @@ export function createRoomSyncCoordinator(
       recoveringFromBuffer = false;
       pendingAlignmentVersion = null;
       setStatus("starting");
-      await player.loadMedia(media);
-      loadedMedia = media;
-      mediaFailed = false;
-      await waitForMediaReady();
-      forceAlignment = true;
+      try {
+        await player.loadMedia(media);
+        loadedMedia = media;
+        mediaFailed = false;
+        await waitForMediaReady();
+        if (mediaFailed) {
+          return;
+        }
+        forceAlignment = true;
+      } catch (cause) {
+        loadedMedia = media;
+        if (cause instanceof MediaRuntimeError) {
+          handleMediaError(cause);
+          return;
+        }
+        throw cause;
+      }
     } else if (forceAlignment && !player.isReady()) {
       await waitForMediaReady();
+      if (mediaFailed) {
+        return;
+      }
     }
 
     await requestAlignment(forceAlignment);
@@ -874,7 +895,6 @@ export function createRoomSyncCoordinator(
       try {
         await clockCalibrator.calibrate();
         const initialSnapshot = await roomService.fetchSnapshot(options.roomId);
-        await applySnapshot(initialSnapshot, true);
 
         await channelService.connect({
           roomId: options.roomId,
@@ -907,6 +927,12 @@ export function createRoomSyncCoordinator(
             },
           },
         });
+
+        if (startGeneration !== generation) {
+          return;
+        }
+
+        await applySnapshot(initialSnapshot, true);
 
         if (startGeneration !== generation) {
           return;

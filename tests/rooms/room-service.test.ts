@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   createRoomService,
+  hydrateSnapshotMediaIdentity,
   type RoomSnapshot,
 } from "../../src/lib/rooms/room-service";
 import type { Database } from "../../src/lib/supabase/database.types";
@@ -11,16 +12,44 @@ const roomId = "11111111-1111-4111-8111-111111111111";
 const userId = "22222222-2222-4222-8222-222222222222";
 const timestamp = "2026-08-17T12:00:00.000Z";
 
-function createClientMock(...responses: unknown[]) {
+function createQueryBuilder(result: { data: unknown; error: unknown }) {
+  const builder: {
+    select: ReturnType<typeof vi.fn>;
+    eq: ReturnType<typeof vi.fn>;
+    then: (
+      onFulfilled?: (value: { data: unknown; error: unknown }) => unknown,
+      onRejected?: (reason: unknown) => unknown,
+    ) => Promise<unknown>;
+  } = {
+    select: vi.fn(),
+    eq: vi.fn(),
+    then: (onFulfilled, onRejected) =>
+      Promise.resolve(result).then(onFulfilled, onRejected),
+  };
+  builder.select.mockReturnValue(builder);
+  builder.eq.mockReturnValue(builder);
+  return builder;
+}
+
+function createClientMock(
+  ...responses: unknown[]
+): {
+  client: SupabaseClient<Database>;
+  rpc: ReturnType<typeof vi.fn>;
+  from: ReturnType<typeof vi.fn>;
+} {
   const rpc = vi.fn();
 
   for (const response of responses) {
     rpc.mockResolvedValueOnce(response);
   }
 
+  const from = vi.fn(() => createQueryBuilder({ data: [], error: null }));
+
   return {
-    client: { rpc } as unknown as SupabaseClient<Database>,
+    client: { rpc, from } as unknown as SupabaseClient<Database>,
     rpc,
+    from,
   };
 }
 
@@ -232,6 +261,70 @@ describe("Room service", () => {
       p_room_id: roomId,
       p_chat_limit: 25,
     });
+  });
+
+  it("hydrates playable media identity from media_items when the snapshot RPC omits it", async () => {
+    const mediaId = "44444444-4444-4444-8444-444444444444";
+    const incompleteSnapshot: RoomSnapshot = {
+      ...createSnapshot(),
+      playback: {
+        ...createSnapshot().playback,
+        current_media_id: mediaId,
+        status: "playing",
+      },
+      current_media: {
+        id: mediaId,
+        title: "Never Gonna Give You Up",
+        source_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        source_type: "youtube",
+        source_revision: 1,
+        youtube_video_id: null,
+        torrent_info_hash: null,
+        torrent_input_kind: null,
+        torrent_magnet_uri: null,
+        torrent_file_index: null,
+        torrent_file_path: null,
+        torrent_file_name: null,
+        torrent_file_size: null,
+        queue_position: 0,
+        created_at: timestamp,
+        updated_at: timestamp,
+      },
+      queue: [],
+    };
+    const mediaRow = {
+      id: mediaId,
+      title: "Never Gonna Give You Up",
+      source_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      source_type: "youtube" as const,
+      source_revision: 1,
+      youtube_video_id: "dQw4w9WgXcQ",
+      torrent_info_hash: null,
+      torrent_input_kind: null,
+      torrent_magnet_uri: null,
+      torrent_file_index: null,
+      torrent_file_path: null,
+      torrent_file_name: null,
+      torrent_file_size: null,
+      queue_position: 0,
+      created_at: timestamp,
+      updated_at: timestamp,
+    };
+    const { client, from } = createClientMock({
+      data: incompleteSnapshot,
+      error: null,
+    });
+    from.mockImplementation(() =>
+      createQueryBuilder({ data: [mediaRow], error: null }),
+    );
+
+    await expect(createRoomService(client).fetchSnapshot(roomId)).resolves.toEqual(
+      hydrateSnapshotMediaIdentity(incompleteSnapshot, [mediaRow]),
+    );
+    expect(
+      hydrateSnapshotMediaIdentity(incompleteSnapshot, [mediaRow]).current_media
+        ?.youtube_video_id,
+    ).toBe("dQw4w9WgXcQ");
   });
 
   it("rejects malformed snapshot responses before they reach room state", async () => {

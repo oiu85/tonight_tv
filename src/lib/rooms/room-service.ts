@@ -3,6 +3,27 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createBrowserSupabaseClient } from "../supabase/browser";
 import type { Database } from "../supabase/database.types";
 
+type MediaItemRow = Database["public"]["Tables"]["media_items"]["Row"];
+type SnapshotMediaRow = Pick<
+  MediaItemRow,
+  | "id"
+  | "title"
+  | "source_url"
+  | "source_type"
+  | "source_revision"
+  | "youtube_video_id"
+  | "torrent_info_hash"
+  | "torrent_input_kind"
+  | "torrent_magnet_uri"
+  | "torrent_file_index"
+  | "torrent_file_path"
+  | "torrent_file_name"
+  | "torrent_file_size"
+  | "queue_position"
+  | "created_at"
+  | "updated_at"
+>;
+
 type PublicFunctions = Database["public"]["Functions"];
 
 export type CreatedRoom = PublicFunctions["create_room"]["Returns"][number];
@@ -102,6 +123,8 @@ export type RoomSnapshot = Readonly<{
   }>[];
 }>;
 
+type SnapshotMedia = NonNullable<RoomSnapshot["current_media"]>;
+
 export type RoomServiceErrorCode =
   | "authentication_required"
   | "invalid_input"
@@ -124,6 +147,56 @@ export class RoomServiceError extends Error {
     this.code = code;
     this.databaseCode = options?.databaseCode;
   }
+}
+
+function snapshotMediaFromRow(item: SnapshotMediaRow): SnapshotMedia {
+  return Object.freeze({
+    id: item.id,
+    title: item.title,
+    source_url: item.source_url,
+    source_type: item.source_type,
+    source_revision: item.source_revision,
+    youtube_video_id: item.youtube_video_id,
+    torrent_info_hash: item.torrent_info_hash,
+    torrent_input_kind: item.torrent_input_kind,
+    torrent_magnet_uri: item.torrent_magnet_uri,
+    torrent_file_index: item.torrent_file_index,
+    torrent_file_path: item.torrent_file_path,
+    torrent_file_name: item.torrent_file_name,
+    torrent_file_size: item.torrent_file_size,
+    queue_position: item.queue_position,
+    created_at: item.created_at,
+    updated_at: item.updated_at,
+  });
+}
+
+export function hydrateSnapshotMediaIdentity(
+  snapshot: RoomSnapshot,
+  items: readonly SnapshotMediaRow[],
+): RoomSnapshot {
+  if (items.length === 0) {
+    return snapshot;
+  }
+
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const currentId = snapshot.playback.current_media_id;
+  const currentRow = currentId ? byId.get(currentId) : undefined;
+  const queue = Object.freeze(
+    [...items]
+      .sort((left, right) => left.queue_position - right.queue_position)
+      .map(snapshotMediaFromRow),
+  );
+
+  return Object.freeze({
+    ...snapshot,
+    current_media:
+      currentId === null
+        ? null
+        : currentRow
+          ? snapshotMediaFromRow(currentRow)
+          : snapshot.current_media,
+    queue,
+  });
 }
 
 export type RoomService = Readonly<{
@@ -356,7 +429,22 @@ export function createRoomService(client: SupabaseClient<Database>): RoomService
       throw invalidResponse("room snapshot");
     }
 
-    return data;
+    try {
+      const mediaQuery = await client
+        .from("media_items")
+        .select(
+          "id, title, source_url, source_type, source_revision, youtube_video_id, torrent_info_hash, torrent_input_kind, torrent_magnet_uri, torrent_file_index, torrent_file_path, torrent_file_name, torrent_file_size, queue_position, created_at, updated_at",
+        )
+        .eq("room_id", roomId);
+
+      if (mediaQuery.error || !mediaQuery.data) {
+        return data;
+      }
+
+      return hydrateSnapshotMediaIdentity(data, mediaQuery.data);
+    } catch {
+      return data;
+    }
   }
 
   async function sampleServerTime(): Promise<string> {
