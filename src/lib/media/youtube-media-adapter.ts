@@ -62,6 +62,32 @@ export function createYouTubeMediaPlayerAdapter(
   let buffering = false;
   let stallTimer: ReturnType<typeof setTimeout> | null = null;
   const seekWaiters = new Set<() => void>();
+  const layoutRoot = mountElement.parentElement ?? mountElement;
+  let resizeObserver: ResizeObserver | null = null;
+
+  function measurePlayerBox(): { width: number; height: number } {
+    const rect = layoutRoot.getBoundingClientRect();
+    const width = Math.round(rect.width || layoutRoot.clientWidth || 0);
+    const height = Math.round(rect.height || layoutRoot.clientHeight || 0);
+    if (width < 64 || height < 36) {
+      return { width: 1280, height: 720 };
+    }
+    return { width, height };
+  }
+
+  function syncPlayerSize(target: YouTubePlayer | null = player): void {
+    if (!target?.setSize) return;
+    const { width, height } = measurePlayerBox();
+    target.setSize(width, height);
+  }
+
+  function observePlayerSize(): void {
+    if (resizeObserver || typeof ResizeObserver === "undefined") return;
+    resizeObserver = new ResizeObserver(() => {
+      syncPlayerSize();
+    });
+    resizeObserver.observe(layoutRoot);
+  }
 
   function clearStallTimer(): void {
     if (stallTimer !== null) {
@@ -154,9 +180,10 @@ export function createYouTubeMediaPlayerAdapter(
     return new Promise<YouTubePlayer>((resolve, reject) => {
       let instance: YouTubePlayer;
       try {
+        const { width, height } = measurePlayerBox();
         instance = new api.Player(mountElement, {
-          width: "100%",
-          height: "100%",
+          width: String(width),
+          height: String(height),
           playerVars: {
             autoplay: 0,
             controls: 0,
@@ -176,6 +203,8 @@ export function createYouTubeMediaPlayerAdapter(
               }
               player = event.target;
               playerReady = true;
+              observePlayerSize();
+              syncPlayerSize(event.target);
               resolve(event.target);
             },
             onStateChange: (event) => handleStateChange(event.data),
@@ -273,6 +302,7 @@ export function createYouTubeMediaPlayerAdapter(
     const activePlayer = await ensurePlayer();
     if (destroyed || mediaId !== media.id || youtubeVideoId !== nextVideoId) return;
     activePlayer.cueVideoById({ videoId: nextVideoId, startSeconds: 0 });
+    syncPlayerSize(activePlayer);
     // cueVideoById often never emits CUED until play. The iframe is already
     // commandable after onReady, so the room must not wait on that event.
     mediaReady = true;
@@ -311,6 +341,8 @@ export function createYouTubeMediaPlayerAdapter(
   function destroy(): void {
     if (destroyed) return;
     destroyed = true;
+    resizeObserver?.disconnect();
+    resizeObserver = null;
     clearStallTimer();
     setBuffering(false);
     settleSeekWaiters();

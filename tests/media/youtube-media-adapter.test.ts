@@ -43,6 +43,7 @@ function createYouTubeFixture() {
     isMuted: vi.fn(() => muted),
     mute: vi.fn(() => { muted = true; }),
     unMute: vi.fn(() => { muted = false; }),
+    setSize: vi.fn(),
     destroy: vi.fn(),
   };
 
@@ -79,6 +80,9 @@ describe("YouTube media adapter", () => {
       startSeconds: 0,
     });
     expect(options?.playerVars.widget_referrer).toBe(window.location.origin);
+    expect(options?.width).toBe("1280");
+    expect(options?.height).toBe("720");
+    expect(fixture.player.setSize).toHaveBeenCalled();
 
     await expect(adapter.waitUntilReady()).resolves.toBeUndefined();
     expect(adapter.isReady()).toBe(true);

@@ -30,6 +30,7 @@ export type YouTubePlayer = Readonly<{
   mute: () => void;
   unMute: () => void;
   destroy: () => void;
+  setSize?: (width: number, height: number) => void;
 }>;
 
 export type YouTubePlayerEvent = Readonly<{

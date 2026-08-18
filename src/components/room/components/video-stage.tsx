@@ -217,19 +217,29 @@ export const VideoStage = memo(function VideoStage({
         playsInline
         preload="auto"
         aria-label={snapshot.current_media?.title ?? t("label")}
-        hidden={youtubeActive}
+        className={youtubeActive ? "tt-media-layer--inactive" : undefined}
       />
       <div
         ref={youtubeMountRef}
-        className="tt-youtube-mount"
-        hidden={!youtubeActive}
+        className={
+          youtubeActive ? "tt-youtube-mount" : "tt-youtube-mount tt-media-layer--inactive"
+        }
+        aria-hidden={!youtubeActive}
         aria-label={youtubeActive ? snapshot.current_media?.title : undefined}
       />
       <div
         ref={webtorMountRef}
-        className="tt-webtor-mount"
-        hidden={snapshot.current_media?.source_type !== "torrent"}
-        aria-label={snapshot.current_media?.source_type === "torrent" ? snapshot.current_media.title : undefined}
+        className={
+          snapshot.current_media?.source_type === "torrent"
+            ? "tt-webtor-mount"
+            : "tt-webtor-mount tt-media-layer--inactive"
+        }
+        aria-hidden={snapshot.current_media?.source_type !== "torrent"}
+        aria-label={
+          snapshot.current_media?.source_type === "torrent"
+            ? snapshot.current_media.title
+            : undefined
+        }
       />
       <span className="tt-video-label" aria-hidden="true">
         <span className="tt-video-label-dot" />

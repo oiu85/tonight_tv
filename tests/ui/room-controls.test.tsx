@@ -151,6 +151,35 @@ describe("Room playback surfaces", () => {
     expect(markup).not.toMatch(/aria-label="Play"/);
   });
 
+  it("keeps the YouTube mount in layout so the iframe can paint", () => {
+    const youtubeSnapshot: RoomSnapshot = {
+      ...snapshot(false),
+      current_media: {
+        ...snapshot(false).current_media!,
+        source_type: "youtube",
+        source_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        youtube_video_id: "dQw4w9WgXcQ",
+      },
+    };
+    const markup = renderToStaticMarkup(
+      <I18nHarness>
+        <VideoStage
+          stageRef={createRef<HTMLElement>()}
+          videoRef={createRef<HTMLVideoElement>()}
+          youtubeMountRef={createRef<HTMLDivElement>()}
+          snapshot={youtubeSnapshot}
+          status="live"
+          mediaError={null}
+          {...videoStageCommon}
+        />
+      </I18nHarness>,
+    );
+
+    expect(markup).toContain("tt-youtube-mount");
+    expect(markup).not.toMatch(/tt-youtube-mount[^>]*\shidden/);
+    expect(markup).not.toContain("tt-youtube-mount tt-media-layer--inactive");
+  });
+
   it("shows a useful waiting state for a local P2P viewer without shared controls", () => {
     const baseSnapshot = snapshot(false);
     const localSnapshot: RoomSnapshot = {
