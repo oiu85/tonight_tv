@@ -18,7 +18,7 @@ import { useEffect, useState } from "react";
 import { getBrowserAuthService } from "@/lib/auth/auth-service";
 import { Button, LoadingBlock, cx } from "@/components/primitives";
 import { LocaleSwitcher, useTranslations } from "@/i18n";
-import { HelpLauncher } from "./help";
+import { ThemeSwitcher } from "@/theme";
 import { Brand } from "./brand";
 import { AuthFeaturePill, AuthFooter, AuthShell } from "./auth-marketing";
 
@@ -112,8 +112,8 @@ export function EntryClient() {
       <div className="tt-inline-cluster" style={{ justifyContent: "space-between" }}>
         <Brand size="md" />
         <div className="tt-inline-cluster" style={{ gap: 6 }}>
+          <ThemeSwitcher />
           <LocaleSwitcher variant="compact" />
-          <HelpLauncher topic="welcome" label={tCommon("openGuide")} />
         </div>
       </div>
 

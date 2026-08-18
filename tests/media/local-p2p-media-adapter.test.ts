@@ -31,10 +31,22 @@ function runtimeMock(hasLocalSeed = false): LocalP2pRuntime {
     initialize: vi.fn(async () => undefined),
     seedLocalFile: vi.fn(),
     joinLocalStream: vi.fn(),
-    attachToMediaElement: vi.fn(async () => undefined),
+    attachToMediaElement: vi.fn(async (_descriptor, element: HTMLMediaElement) => {
+      element.src = "http://localhost/webtorrent/stream";
+    }),
     leaveLocalStream: vi.fn(async () => undefined),
     hasLocalSeed: vi.fn(() => hasLocalSeed),
-    getState: vi.fn(),
+    setSignalTransport: vi.fn(),
+    getState: vi.fn(() => ({
+      status: "ready" as const,
+      infoHash,
+      peerCount: 0,
+      uploadSpeed: 0,
+      downloadSpeed: 0,
+      progress: 1,
+      hosting: hasLocalSeed,
+      error: null,
+    })),
     subscribe: vi.fn(() => () => undefined),
     destroy: vi.fn(async () => undefined),
   } as unknown as LocalP2pRuntime;
@@ -63,20 +75,20 @@ function videoFixture() {
 }
 
 describe("local P2P media adapter", () => {
-  it("requires the owner to reselect the original file after reload", async () => {
+  it("streams into the shared video element even when the owner tab is not hosting", async () => {
     const runtime = runtimeMock(false);
+    const element = videoFixture();
     const adapter = createLocalP2pMediaPlayerAdapter({
-      mediaElement: videoFixture(),
+      mediaElement: element,
       roomId,
       isOwner: true,
       runtime,
       sourceService: sourceServiceMock(),
     });
 
-    await expect(adapter.loadMedia(syncMedia)).rejects.toMatchObject({
-      category: "p2p_file_required",
-    });
-    expect(runtime.attachToMediaElement).not.toHaveBeenCalled();
+    await adapter.loadMedia(syncMedia);
+    expect(runtime.attachToMediaElement).toHaveBeenCalledWith(descriptor, expect.any(HTMLVideoElement));
+    expect(element.load).toHaveBeenCalledTimes(1);
     adapter.destroy();
   });
 
@@ -127,5 +139,36 @@ describe("local P2P media adapter", () => {
     adapter.destroy();
     await Promise.resolve();
     expect(runtime.leaveLocalStream).not.toHaveBeenCalled();
+  });
+
+  it("does not treat a transient viewer media error as fatal while the swarm is still opening", async () => {
+    const runtime = runtimeMock(false);
+    vi.mocked(runtime.getState).mockReturnValue({
+      status: "connecting",
+      infoHash,
+      peerCount: 0,
+      uploadSpeed: 0,
+      downloadSpeed: 0,
+      progress: 0,
+      hosting: false,
+      error: null,
+    });
+    const element = videoFixture();
+    const onError = vi.fn();
+    const adapter = createLocalP2pMediaPlayerAdapter({
+      mediaElement: element,
+      roomId,
+      isOwner: false,
+      runtime,
+      sourceService: sourceServiceMock(),
+      events: { onError },
+    });
+
+    await adapter.loadMedia(syncMedia);
+    element.dispatchEvent(new Event("error"));
+
+    expect(adapter.hasFatalError()).toBe(false);
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ fatal: false }));
+    adapter.destroy();
   });
 });

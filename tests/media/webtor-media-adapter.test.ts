@@ -19,8 +19,12 @@ const media: SyncMedia = {
 };
 
 type WebtorConfig = Readonly<{
+  id?: string;
+  el?: HTMLElement;
   magnet: string;
   path?: string;
+  controls?: boolean;
+  features?: Record<string, boolean>;
   on: (event: WebtorEvent) => void;
 }>;
 
@@ -46,8 +50,13 @@ describe("Webtor media adapter", () => {
     await adapter.loadMedia(media);
     expect(push).toHaveBeenCalledOnce();
     const config = push.mock.calls[0][0] as WebtorConfig;
+    expect(config.id).toMatch(/^tt-webtor-/);
+    expect(config.el).toBeUndefined();
     expect(config.magnet).toBe(`magnet:?xt=urn:btih:${infoHash}`);
     expect(config.path).toBe(media.torrentFilePath);
+    expect(config.controls).toBe(true);
+    expect(config.features?.timeline).toBe(false);
+    expect(config.features?.playpause).toBe(false);
 
     const player: WebtorPlayer = {
       play: vi.fn(),
@@ -75,6 +84,17 @@ describe("Webtor media adapter", () => {
     mount.append(document.createElement("span"));
     adapter.destroy();
     expect(mount.childElementCount).toBe(0);
+  });
+
+  it("omits path so Webtor can auto-select the main video", async () => {
+    push.mockReset();
+    const adapter = createWebtorMediaPlayerAdapter({ mount: document.createElement("div") });
+    await adapter.loadMedia({
+      ...media,
+      torrentFilePath: "__webtor_autoselect__.mp4",
+    });
+    const config = push.mock.calls[0][0] as WebtorConfig;
+    expect(config.path).toBeUndefined();
   });
 
   it("rejects non-torrent media instead of confusing it with WebTorrent local P2P", async () => {

@@ -6,6 +6,8 @@ import "./globals.css";
 import { ToastProvider, TooltipProvider } from "@/components/primitives";
 import { LocaleProvider, getDirection } from "@/i18n";
 import { getMessages, getServerLocale } from "@/i18n/server";
+import { ThemeProvider } from "@/theme";
+import { getServerTheme } from "@/theme/server";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -23,37 +25,52 @@ import "@fontsource/ibm-plex-sans-arabic/500.css";
 import "@fontsource/ibm-plex-sans-arabic/600.css";
 import "@fontsource/ibm-plex-sans-arabic/700.css";
 
-export const metadata: Metadata = {
-  title: { default: "Tonight TV", template: "%s · Tonight TV" },
-  description: "A private synchronized watch room.",
-  applicationName: "Tonight TV",
-  referrer: "origin-when-cross-origin",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const locale = await getServerLocale();
+  const messages = getMessages(locale);
+  return {
+    title: { default: messages.common.appName, template: `%s · ${messages.common.appName}` },
+    description: messages.entry.metaDescription,
+    applicationName: messages.common.appName,
+    referrer: "origin-when-cross-origin",
+    icons: {
+      icon: [{ url: "/icon.svg", type: "image/svg+xml", sizes: "any" }],
+      apple: [{ url: "/apple-icon", sizes: "180x180" }],
+    },
+  };
+}
 
-export const viewport: Viewport = {
-  themeColor: "#080C12",
-  colorScheme: "dark",
-};
+export async function generateViewport(): Promise<Viewport> {
+  const theme = await getServerTheme();
+  return {
+    themeColor: theme === "light" ? "#F4F6FA" : "#080C12",
+    colorScheme: theme,
+  };
+}
 
 export default async function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   const locale = await getServerLocale();
   const direction = getDirection(locale);
   const messages = getMessages(locale);
+  const theme = await getServerTheme();
 
   return (
     <html
       lang={locale}
       dir={direction}
-      className={`${inter.variable} tt-locale-${locale}`}
-      style={{ colorScheme: "dark" }}
+      data-theme={theme}
+      className={`${inter.variable} tt-locale-${locale}${direction === "rtl" ? " tt-rtl" : ""}`}
+      style={{ colorScheme: theme }}
       suppressHydrationWarning
     >
       <body>
-        <LocaleProvider initialLocale={locale} initialMessages={messages}>
-          <ToastProvider>
-            <TooltipProvider>{children}</TooltipProvider>
-          </ToastProvider>
-        </LocaleProvider>
+        <ThemeProvider initialTheme={theme}>
+          <LocaleProvider initialLocale={locale} initialMessages={messages}>
+            <ToastProvider>
+              <TooltipProvider>{children}</TooltipProvider>
+            </ToastProvider>
+          </LocaleProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

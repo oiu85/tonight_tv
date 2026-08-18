@@ -8,16 +8,11 @@ const MenuContext = createContext<MenuContextValue | null>(null);
 
 /** Translate a logical or physical alignment into an inline style. */
 function resolveAlignStyle(align: "right" | "left" | "end" | "start"): CSSProperties | undefined {
-  if (align === "left" || align === "start") return { right: "auto", left: 0 };
+  if (align === "left" || align === "start") {
+    return { insetInlineEnd: "auto", insetInlineStart: 0 };
+  }
   if (align === "end") {
-    // `end` is the inline-end edge: right in LTR, left in RTL. The page
-    // already sets `<html dir>` so we can pick by reading it at render
-    // time. Reading on the client is safe; the menu only mounts when
-    // open (and is therefore always client-rendered).
-    if (typeof document !== "undefined" && document.documentElement.dir === "rtl") {
-      return { right: "auto", left: 0 };
-    }
-    return undefined;
+    return { insetInlineStart: "auto", insetInlineEnd: 0 };
   }
   return undefined;
 }

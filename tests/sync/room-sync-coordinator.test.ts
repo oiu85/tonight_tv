@@ -93,7 +93,9 @@ class FakePlayer implements PlayerSyncAdapter {
   paused = true;
   ready = true;
   seekable = true;
+  seekLandingOffset = 0;
   seekBlocker: Promise<void> | null = null;
+  seekLandingOffset = 0;
   readonly loads: (SyncMedia | null)[] = [];
   readonly seeks: number[] = [];
   readonly play = vi.fn(async () => {
@@ -140,7 +142,7 @@ class FakePlayer implements PlayerSyncAdapter {
   async seek(positionSec: number) {
     this.seeks.push(positionSec);
     if (this.seekBlocker) await this.seekBlocker;
-    this.currentTime = positionSec;
+    this.currentTime = positionSec + this.seekLandingOffset;
   }
 
   getPlaybackRate() {
@@ -186,6 +188,8 @@ function createChannelFake() {
     replacePlaybackVersion: (nextVersion) => {
       version = nextVersion;
     },
+    sendP2pSignal: vi.fn(async () => undefined),
+    subscribeP2pSignal: vi.fn(() => () => undefined),
   };
 
   return {
@@ -330,6 +334,86 @@ describe("room synchronization lifecycle", () => {
     expect(harness.player.currentTime).toBe(73);
     expect(harness.player.paused).toBe(false);
     expect(harness.coordinator.getState().canonicalPlayback?.state_version).toBe(2);
+  });
+
+  it("pauses and holds presentation until a live seek has landed", async () => {
+    const harness = createHarness();
+    await harness.coordinator.start(startOptions);
+    harness.player.pause.mockClear();
+    let releaseSeek!: () => void;
+    harness.player.seekBlocker = new Promise<void>((resolve) => {
+      releaseSeek = resolve;
+    });
+
+    const pending = harness.coordinator.applyCommandResult({
+      ...makeSnapshot().playback,
+      anchor_position_sec: 80,
+      anchor_server_time: new Date(serverNowMs).toISOString(),
+      state_version: 2,
+    });
+
+    await vi.waitFor(() => expect(harness.coordinator.getState().status).toBe("seeking"));
+    expect(harness.player.pause).toHaveBeenCalled();
+    expect(harness.player.paused).toBe(true);
+
+    releaseSeek();
+    await pending;
+
+    expect(harness.player.currentTime).toBe(80);
+    expect(harness.player.paused).toBe(false);
+    expect(harness.coordinator.getState().status).toBe("live");
+  });
+
+  it("goes live even when a seek lands a little off the exact target", async () => {
+    const harness = createHarness();
+    await harness.coordinator.start(startOptions);
+    harness.player.seekLandingOffset = 0.4;
+
+    await harness.coordinator.applyCommandResult({
+      ...makeSnapshot().playback,
+      anchor_position_sec: 80,
+      anchor_server_time: new Date(serverNowMs).toISOString(),
+      state_version: 2,
+    });
+
+    expect(harness.player.paused).toBe(false);
+    expect(harness.coordinator.getState().status).toBe("live");
+  });
+
+  it("goes live after a slow seek even if the room clock moved during it", async () => {
+    const harness = createHarness();
+    await harness.coordinator.start(startOptions);
+    let releaseSeek!: () => void;
+    harness.player.seekBlocker = new Promise<void>((resolve) => {
+      releaseSeek = resolve;
+    });
+
+    const pending = harness.coordinator.applyCommandResult({
+      ...makeSnapshot().playback,
+      anchor_position_sec: 80,
+      anchor_server_time: new Date(serverNowMs).toISOString(),
+      state_version: 2,
+    });
+
+    await vi.waitFor(() => expect(harness.coordinator.getState().status).toBe("seeking"));
+    harness.clock.advance(3_000);
+    releaseSeek();
+    await pending;
+
+    expect(harness.player.paused).toBe(false);
+    expect(harness.coordinator.getState().status).toBe("live");
+  });
+
+  it("returns to live after buffering instead of staying on catching up", async () => {
+    const harness = createHarness();
+    await harness.coordinator.start(startOptions);
+    harness.player.currentTime = 9.6;
+
+    await harness.coordinator.handleBufferingChange(true);
+    await harness.coordinator.handleBufferingChange(false);
+
+    expect(harness.player.paused).toBe(false);
+    expect(harness.coordinator.getState().status).toBe("live");
   });
 
   it("keeps an accepted paused seek paused at the new position", async () => {

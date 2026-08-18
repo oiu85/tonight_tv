@@ -1,6 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { syncStatusCopy } from "../../src/components/room/components/playback-helpers";
+import { isPlaybackPresentationHeld, syncStatusCopy } from "../../src/components/room/components/playback-helpers";
+
+describe("isPlaybackPresentationHeld", () => {
+  it("covers only the unstable alignment statuses", () => {
+    expect(isPlaybackPresentationHeld("seeking")).toBe(true);
+    expect(isPlaybackPresentationHeld("aligning")).toBe(true);
+    expect(isPlaybackPresentationHeld("starting")).toBe(true);
+    expect(isPlaybackPresentationHeld("synchronizing")).toBe(false);
+    expect(isPlaybackPresentationHeld("catching_up")).toBe(false);
+    expect(isPlaybackPresentationHeld("live")).toBe(false);
+    expect(isPlaybackPresentationHeld("paused")).toBe(false);
+  });
+});
 
 describe("syncStatusCopy", () => {
   it("uses keys relative to the scoped sync translator", () => {

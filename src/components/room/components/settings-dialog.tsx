@@ -80,7 +80,7 @@ function RoomSettingsDialogContent({
         </Field>
         <Field label={t("link")} htmlFor="settings-room-link" help={t("linkHelp")}>
           <div className="tt-inline-cluster" style={{ gap: 6 }}>
-            <Input id="settings-room-link" value={roomLink} readOnly />
+            <Input id="settings-room-link" value={roomLink} readOnly dir="ltr" spellCheck={false} />
             <Button type="button" variant="primary" onClick={() => void onCopy()}>
               <Copy size={17} aria-hidden />
               <span className="tt-button-label">{t("copyLink")}</span>

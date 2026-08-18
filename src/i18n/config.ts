@@ -1,8 +1,8 @@
 /**
  * Centralised locale configuration for Tonight TV.
  *
- * Tonight TV ships in English (`en`) and Arabic (`ar`). Adding a new
- * locale is a 3-step change:
+ * Tonight TV ships Arabic-first (`ar`, RTL) with English (`en`) as the
+ * second language. Adding a new locale is a 3-step change:
  *   1. Add the code + label to LOCALES below.
  *   2. Add a `messages/<locale>.json` file with the same shape as the
  *      English bundle.
@@ -14,7 +14,7 @@
  * source of truth.
  */
 
-export const DEFAULT_LOCALE = "en" as const;
+export const DEFAULT_LOCALE = "ar" as const;
 
 export type Locale = "en" | "ar";
 
@@ -25,8 +25,8 @@ export const LOCALES: ReadonlyArray<{
   direction: "ltr" | "rtl";
   intl: string; // BCP-47 tag, also passed to Intl.* constructors
 }> = [
-  { code: "en", label: "English", nativeLabel: "English", direction: "ltr", intl: "en" },
   { code: "ar", label: "Arabic",  nativeLabel: "العربية",  direction: "rtl", intl: "ar" },
+  { code: "en", label: "English", nativeLabel: "English", direction: "ltr", intl: "en" },
 ] as const;
 
 export function isLocale(value: string | undefined | null): value is Locale {
@@ -34,7 +34,7 @@ export function isLocale(value: string | undefined | null): value is Locale {
 }
 
 export function getLocaleMeta(code: Locale) {
-  return LOCALES.find((entry) => entry.code === code) ?? LOCALES[0];
+  return LOCALES.find((entry) => entry.code === code) ?? LOCALES.find((entry) => entry.code === DEFAULT_LOCALE)!;
 }
 
 export function getDirection(code: Locale): "ltr" | "rtl" {

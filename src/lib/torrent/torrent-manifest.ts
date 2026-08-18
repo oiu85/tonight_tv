@@ -6,10 +6,13 @@ import {
   TORRENT_PATH_MAX_DEPTH,
   TORRENT_PATH_MAX_LENGTH,
   TorrentGatewayError,
+  type TorrentInspection,
   type TorrentManifestFile,
 } from "./torrent-contracts";
 
 const INFO_HASH_PATTERN = /^[a-f0-9]{40}$/i;
+const WEBTOR_HOST_PATTERN = /^(?:www\.)?webtor\.io$/i;
+const MAGNET_INFO_HASH_PATTERN = /(?:^|[?&])xt=urn:btih:([a-f0-9]{40}|[a-z2-7]{32})/i;
 const VIDEO_EXTENSIONS = new Set(["mp4", "m4v", "mkv", "webm", "avi", "ts", "vob"]);
 const SUBTITLE_EXTENSIONS = new Set(["srt", "vtt"]);
 const AUDIO_EXTENSIONS = new Set(["mp3", "wav", "ogg", "flac", "m4a", "aac"]);
@@ -23,14 +26,66 @@ export type ParsedTorrentIdentity = Readonly<{
   magnetUri: string | null;
 }>;
 
+/** Stored when Webtor should pick the main video because no file list is available. */
+export const WEBTOR_AUTOSELECT_FILE_PATH = "__webtor_autoselect__.mp4";
+
+export function isWebtorAutoselectPath(path: string | null | undefined): boolean {
+  return (path?.trim() ?? "") === WEBTOR_AUTOSELECT_FILE_PATH;
+}
+
+export function canonicalMagnetUri(infoHash: string, displayName?: string | null): string {
+  const hash = infoHash.toLowerCase();
+  const name = displayName?.trim();
+  return name
+    ? `magnet:?xt=urn:btih:${hash}&dn=${encodeURIComponent(name)}`
+    : `magnet:?xt=urn:btih:${hash}`;
+}
+
+export function extractInfoHashFromTorrentInput(input: string): string | null {
+  const trimmed = input.trim();
+  if (INFO_HASH_PATTERN.test(trimmed)) return trimmed.toLowerCase();
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    try {
+      const url = new URL(trimmed);
+      if (WEBTOR_HOST_PATTERN.test(url.hostname)) {
+        const match = url.pathname.match(/\/([a-f0-9]{40})(?:\/|$)/i);
+        if (match) return match[1].toLowerCase();
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  }
+
+  if (trimmed.toLowerCase().startsWith("magnet:?")) {
+    const match = MAGNET_INFO_HASH_PATTERN.exec(trimmed);
+    if (match && INFO_HASH_PATTERN.test(match[1])) return match[1].toLowerCase();
+  }
+
+  return null;
+}
+
 export async function parseMagnetIdentity(magnetUri: string): Promise<ParsedTorrentIdentity> {
   const normalized = magnetUri.trim();
-  if (normalized.length < 20 || normalized.length > 16_384 || !normalized.startsWith("magnet:?")) {
-    throw new TorrentGatewayError("invalid_magnet", "Enter a valid Magnet URI.", { status: 400 });
+  if (normalized.length < 20 || normalized.length > 16_384) {
+    throw new TorrentGatewayError("invalid_magnet", "Enter a Magnet URI, info hash, or webtor.io link.", { status: 400 });
+  }
+
+  const extractedHash = extractInfoHashFromTorrentInput(normalized);
+  const originalIsMagnet = normalized.toLowerCase().startsWith("magnet:?");
+  const parseInput = originalIsMagnet
+    ? normalized
+    : extractedHash
+      ? canonicalMagnetUri(extractedHash)
+      : normalized;
+
+  if (!parseInput.toLowerCase().startsWith("magnet:?")) {
+    throw new TorrentGatewayError("invalid_magnet", "Enter a Magnet URI, info hash, or webtor.io link.", { status: 400 });
   }
 
   try {
-    const parsed = await parseTorrent(normalized);
+    const parsed = await parseTorrent(parseInput);
     const infoHash = parsed.infoHash?.toLowerCase();
     if (!infoHash || !INFO_HASH_PATTERN.test(infoHash)) {
       throw new Error("missing info hash");
@@ -38,9 +93,16 @@ export async function parseMagnetIdentity(magnetUri: string): Promise<ParsedTorr
     return Object.freeze({
       infoHash,
       name: parsed.name?.trim() || null,
-      magnetUri: normalized,
+      magnetUri: originalIsMagnet ? normalized : canonicalMagnetUri(infoHash, parsed.name),
     });
   } catch (error) {
+    if (extractedHash) {
+      return Object.freeze({
+        infoHash: extractedHash,
+        name: null,
+        magnetUri: originalIsMagnet ? normalized : canonicalMagnetUri(extractedHash),
+      });
+    }
     throw new TorrentGatewayError("invalid_magnet", "The Magnet URI does not contain a valid BitTorrent info hash.", {
       cause: error,
       status: 400,
@@ -148,6 +210,31 @@ export function classifyTorrentFile(input: Readonly<{
     kind,
     playableCandidate,
     candidateRank,
+  });
+}
+
+function autoselectFileName(identityName: string | null): string {
+  const raw = identityName?.trim().replace(/[\\/]/g, "-") ?? "";
+  if (!raw) return "video.mp4";
+  if (/\.[a-z0-9]{2,5}$/i.test(raw)) return raw.slice(0, 255);
+  return `${raw.slice(0, 250)}.mp4`;
+}
+
+export function inspectionFromMagnetIdentity(identity: ParsedTorrentIdentity): TorrentInspection {
+  const file = classifyTorrentFile({
+    index: 0,
+    path: WEBTOR_AUTOSELECT_FILE_PATH,
+    name: autoselectFileName(identity.name),
+    sizeBytes: 0,
+  });
+  return Object.freeze({
+    infoHash: identity.infoHash,
+    torrentName: identity.name,
+    status: "ready",
+    files: Object.freeze([file]),
+    totalFiles: 1,
+    truncated: false,
+    magnetUri: identity.magnetUri,
   });
 }
 

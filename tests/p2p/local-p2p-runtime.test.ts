@@ -16,6 +16,7 @@ class FakeTorrent {
     {
       name: "fixture.mp4",
       length: 7,
+      select: vi.fn(),
       streamTo: vi.fn(),
     },
   ];
@@ -34,6 +35,8 @@ class FakeTorrent {
   once(name: string, listener: Listener) {
     return this.on(name, listener);
   }
+
+  addPeer = vi.fn(() => true);
 }
 
 function browserSupportFixture() {
@@ -148,7 +151,7 @@ describe("local P2P browser runtime", () => {
       file,
       expect.objectContaining({
         announce: expect.any(Array),
-        private: true,
+        private: false,
         dht: false,
         lsd: true,
         utPex: true,
@@ -158,11 +161,12 @@ describe("local P2P browser runtime", () => {
     );
     expect(descriptor).toEqual({
       infoHash,
-      magnetUri,
+      magnetUri: expect.stringContaining(`magnet:?xt=urn:btih:${infoHash}`),
       fileName: "fixture.mp4",
       fileSize: 7,
       mimeType: "video/mp4",
     });
+    expect(descriptor.magnetUri).toContain("tr=");
     expect(fixture.runtime.hasLocalSeed(infoHash)).toBe(true);
 
     await fixture.runtime.destroy();
@@ -182,9 +186,9 @@ describe("local P2P browser runtime", () => {
     await fixture.runtime.attachToMediaElement(descriptor, video);
 
     expect(fixture.client.add).toHaveBeenCalledWith(
-      magnetUri,
+      expect.stringContaining(magnetUri),
       expect.objectContaining({
-        private: true,
+        private: false,
         dht: false,
         lsd: true,
         utPex: true,
@@ -193,6 +197,7 @@ describe("local P2P browser runtime", () => {
       expect.any(Function),
     );
     expect(fixture.torrent.files[0].streamTo).toHaveBeenCalledWith(video);
+    expect(fixture.torrent.files[0].select).toHaveBeenCalled();
 
     await fixture.runtime.leaveLocalStream(infoHash);
 
@@ -203,6 +208,78 @@ describe("local P2P browser runtime", () => {
     );
     expect(fixture.runtime.getState().status).toBe("stopped");
 
+    await fixture.runtime.destroy();
+  });
+
+  it("plays the original File in the hosting tab instead of the torrent stream", async () => {
+    const fixture = runtimeFixture();
+    const file = new File(["fixture"], "fixture.mp4", { type: "video/mp4" });
+    const descriptor = await fixture.runtime.seedLocalFile(file);
+    const video = document.createElement("video");
+    const blobUrl = "blob:http://localhost/seed-file";
+    const createObjectURL = vi.spyOn(URL, "createObjectURL").mockReturnValue(blobUrl);
+
+    await fixture.runtime.attachToMediaElement(descriptor, video);
+
+    expect(createObjectURL).toHaveBeenCalledWith(file);
+    expect(video.src).toContain("blob:");
+    expect(fixture.client.add).not.toHaveBeenCalled();
+    expect(fixture.torrent.files[0].streamTo).not.toHaveBeenCalled();
+
+    createObjectURL.mockRestore();
+    await fixture.runtime.destroy();
+  });
+
+  it("opens a room-signal WebRTC peer when a leech hello arrives at the seeder", async () => {
+    const fixture = runtimeFixture();
+    const peers: FakePeer[] = [];
+    class FakePeer {
+      id?: string;
+      readonly handlers = new Map<string, Listener[]>();
+      constructor(readonly options: { initiator?: boolean }) {
+        peers.push(this);
+      }
+      on(name: string, listener: Listener) {
+        this.handlers.set(name, [...(this.handlers.get(name) ?? []), listener]);
+        return this;
+      }
+      signal = vi.fn();
+      destroy = vi.fn();
+    }
+    const runtime = createLocalP2pRuntime({
+      loadWebTorrent: fixture.loadWebTorrent,
+      registerServiceWorker: fixture.registerServiceWorker,
+      loadSimplePeer: async () => FakePeer as never,
+      metricIntervalMs: 60_000,
+    });
+    await runtime.seedLocalFile(new File(["fixture"], "fixture.mp4", { type: "video/mp4" }));
+    const sent: unknown[] = [];
+    runtime.setSignalTransport({
+      sessionId: "zzzzzzzz-zzzz-4zzz-8zzz-zzzzzzzzzzzz",
+      send: (message) => {
+        sent.push(message);
+      },
+      subscribe: (listener) => {
+        listener({
+          kind: "hello",
+          infoHash,
+          from: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          to: null,
+          role: "leech",
+        });
+        return () => undefined;
+      },
+    });
+    await vi.waitFor(() => {
+      expect(peers).toHaveLength(1);
+    });
+
+    expect(peers).toHaveLength(1);
+    expect(peers[0].options.initiator).toBe(true);
+    expect(fixture.torrent.addPeer).toHaveBeenCalledWith(peers[0]);
+    expect(sent.some((message) => message && typeof message === "object" && (message as { kind: string }).kind === "hello")).toBe(true);
+
+    await runtime.destroy();
     await fixture.runtime.destroy();
   });
 });

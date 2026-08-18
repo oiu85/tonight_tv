@@ -9,13 +9,18 @@
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { LocaleProvider, LocaleSwitcher, useLocale, useTranslations } from "../../src/i18n";
+import { DEFAULT_LOCALE, getDirection, LocaleProvider, LocaleSwitcher, useLocale, useTranslations } from "../../src/i18n";
 import en from "../../messages/en.json";
 import ar from "../../messages/ar.json";
 
 afterEach(cleanup);
 
 describe("LocaleProvider + LocaleSwitcher", () => {
+  it("defaults the product to Arabic RTL", () => {
+    expect(DEFAULT_LOCALE).toBe("ar");
+    expect(getDirection(DEFAULT_LOCALE)).toBe("rtl");
+  });
+
   it("returns English copy by default and lets consumers switch to Arabic", async () => {
     let activeLocale = "en";
     let observed: string | null = null;
@@ -50,7 +55,7 @@ describe("LocaleProvider + LocaleSwitcher", () => {
     fireEvent.click(view.getByRole("menuitemradio", { name: /العربية/ }));
 
     await waitFor(() => expect(activeLocale).toBe("ar"));
-    expect(observed).toBe("تونايت تي في");
+    expect(observed).toBe("Tonight TV");
     // Cookie persisted.
     expect(document.cookie).toMatch(/tt-locale=ar/);
   });
@@ -67,6 +72,6 @@ describe("LocaleProvider + LocaleSwitcher", () => {
         <Probe />
       </LocaleProvider>,
     );
-    expect(observed).toBe("تونايت تي في");
+    expect(observed).toBe("Tonight TV");
   });
 });

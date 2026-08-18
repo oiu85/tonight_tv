@@ -9,7 +9,13 @@ import type { LocalP2pState } from "@/lib/p2p/local-p2p-contracts";
 import type { RoomSnapshot } from "@/lib/rooms/room-service";
 import type { SubtitleCandidate } from "@/lib/torrent/torrent-manifest";
 import { inspectTorrent } from "@/lib/torrent/torrent-client";
-import { rankSubtitleCandidates, rankVideoCandidates } from "@/lib/torrent/torrent-manifest";
+import {
+  extractInfoHashFromTorrentInput,
+  parseMagnetIdentity,
+  isWebtorAutoselectPath,
+  rankSubtitleCandidates,
+  rankVideoCandidates,
+} from "@/lib/torrent/torrent-manifest";
 import type {
   TorrentInspection,
   TorrentManifestFile,
@@ -85,7 +91,7 @@ function MediaDialogContent({
   const [torrentInputKind, setTorrentInputKind] = useState<"magnet" | "torrent_file">(
     item?.torrent_input_kind ?? "magnet",
   );
-  const [magnetUri, setMagnetUri] = useState("");
+  const [magnetUri, setMagnetUri] = useState(item?.torrent_magnet_uri ?? "");
   const [torrentFile, setTorrentFile] = useState<File | null>(null);
   const [inspection, setInspection] = useState<TorrentInspection | null>(() =>
     item?.source_type === "torrent" &&
@@ -124,7 +130,6 @@ function MediaDialogContent({
   const [inspectionBusy, setInspectionBusy] = useState(false);
   const inspectionGeneration = useRef(0);
   const inspectionAbort = useRef<AbortController | null>(null);
-
   useEffect(() => () => inspectionAbort.current?.abort(), []);
 
   const videoCandidates = useMemo(
@@ -139,6 +144,15 @@ function MediaDialogContent({
     () => (selectedVideo ? rankSubtitleCandidates(selectedVideo, inspection?.files ?? []) : []),
     [inspection, selectedVideo],
   );
+  const subtitleIndexesFor = (video: TorrentManifestFile, files: readonly TorrentManifestFile[]) =>
+    new Set(rankSubtitleCandidates(video, files).map((candidate) => candidate.file.index));
+  const magnetIdentityReady = Boolean(extractInfoHashFromTorrentInput(magnetUri));
+  const autoselectInspection = Boolean(
+    inspection && selectedVideo && isWebtorAutoselectPath(selectedVideo.path),
+  );
+  const torrentSubmitReady =
+    sourceType !== "torrent" ||
+    (torrentInputKind === "magnet" ? magnetIdentityReady : Boolean(inspection && selectedVideo));
 
   async function inspect() {
     const generation = ++inspectionGeneration.current;
@@ -149,7 +163,7 @@ function MediaDialogContent({
     setSelectedVideoIndex(null);
     setSelectedSubtitleIndexes(new Set());
     setInspectionError(null);
-    setInspectionStatus(t("retrieving"));
+    setInspectionStatus(null);
     setInspectionBusy(true);
     try {
       const result = await inspectTorrent(
@@ -162,10 +176,12 @@ function MediaDialogContent({
       if (generation !== inspectionGeneration.current) return;
       const candidates = rankVideoCandidates(result.files);
       setInspection(result);
+      if (result.magnetUri) setMagnetUri(result.magnetUri);
       if (candidates.length === 0) {
         setInspectionError(t("noVideoFiles"));
       } else if (candidates.length === 1) {
         setSelectedVideoIndex(candidates[0].index);
+        setSelectedSubtitleIndexes(subtitleIndexesFor(candidates[0], result.files));
       }
       setInspectionStatus(t("ready"));
     } catch (cause) {
@@ -181,7 +197,39 @@ function MediaDialogContent({
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (sourceType === "torrent") {
-      if (!inspection || !selectedVideo) {
+      let currentInspection = inspection;
+      let currentVideo = selectedVideo;
+      if (torrentInputKind === "magnet" && (!currentInspection || !currentVideo)) {
+        // A Magnet has enough identity to queue immediately. Webtor selects the
+        // playable file inside its own player, so adding must not wait for a
+        // remote file manifest.
+        try {
+          const identity = await parseMagnetIdentity(magnetUri);
+          currentInspection = {
+            infoHash: identity.infoHash,
+            torrentName: identity.name,
+            status: "ready",
+            files: [{
+              index: 0,
+              path: "__webtor_autoselect__.mp4",
+              name: "video.mp4",
+              sizeBytes: 0,
+              extension: "mp4",
+              kind: "video",
+              playableCandidate: true,
+              candidateRank: 0,
+            }],
+            totalFiles: 1,
+            truncated: false,
+            magnetUri: identity.magnetUri,
+          };
+          currentVideo = currentInspection.files[0];
+        } catch (cause) {
+          setInspectionError(cause instanceof Error ? cause.message : t("inspectFirst"));
+          return;
+        }
+      }
+      if (!currentInspection || !currentVideo) {
         setInspectionError(t("inspectFirst"));
         return;
       }
@@ -190,15 +238,15 @@ function MediaDialogContent({
           title,
           sourceType: "torrent",
           torrent: {
-            infoHash: inspection.infoHash,
+            infoHash: currentInspection.infoHash,
             inputKind: torrentInputKind,
-            magnetUri: magnetUri || null,
+            magnetUri: currentInspection.magnetUri || magnetUri.trim() || null,
             metadataFile: torrentFile,
-            torrentName: inspection.torrentName,
-            fileIndex: selectedVideo.index,
-            filePath: selectedVideo.path,
-            fileName: selectedVideo.name,
-            fileSize: selectedVideo.sizeBytes,
+            torrentName: currentInspection.torrentName,
+            fileIndex: currentVideo.index,
+            filePath: currentVideo.path,
+            fileName: currentVideo.name,
+            fileSize: currentVideo.sizeBytes,
           },
         },
         playNow,
@@ -283,9 +331,9 @@ function MediaDialogContent({
             }}
           >
             <option value="auto">{t("sourceTypes.auto")}</option>
+            <option value="youtube">{t("sourceTypes.youtube")}</option>
             <option value="mp4">{t("sourceTypes.mp4")}</option>
             <option value="hls">{t("sourceTypes.hls")}</option>
-            <option value="youtube">{t("sourceTypes.youtube")}</option>
             <option value="torrent">{t("sourceTypes.torrent")}</option>
             <option value="local_p2p">{t("sourceTypes.localP2p")}</option>
           </select>
@@ -325,31 +373,55 @@ function MediaDialogContent({
               </label>
             </fieldset>
             {torrentInputKind === "magnet" ? (
-              <Field label={t("magnetLabel")} htmlFor="media-magnet-uri">
-                <Input id="media-magnet-uri" value={magnetUri} onChange={(event) => { setMagnetUri(event.target.value); setInspection(null); }} placeholder={t("magnetPlaceholder")} required={!inspection} />
+              <Field label={t("magnetLabel")} htmlFor="media-magnet-uri" help={t("magnetHelp")}>
+                <textarea
+                  id="media-magnet-uri"
+                  className="tt-textarea"
+                  dir="ltr"
+                  spellCheck={false}
+                  rows={3}
+                  value={magnetUri}
+                  onChange={(event) => {
+                    setMagnetUri(event.target.value);
+                    setInspection(null);
+                    setSelectedVideoIndex(null);
+                    setInspectionStatus(null);
+                    setInspectionError(null);
+                  }}
+                  placeholder={t("magnetPlaceholder")}
+                  required={!inspection}
+                />
               </Field>
             ) : (
               <Field label={t("torrentFileLabel")} htmlFor="media-torrent-file" help={t("torrentFileHelp")}>
                 <input id="media-torrent-file" type="file" accept=".torrent,application/x-bittorrent,application/octet-stream" onChange={(event) => { setTorrentFile(event.target.files?.[0] ?? null); setInspection(null); }} required={!inspection && item?.source_type !== "torrent"} />
               </Field>
             )}
-            <Button type="button" variant="secondary" onClick={() => void inspect()} disabled={inspectionBusy || (torrentInputKind === "magnet" ? magnetUri.trim().length === 0 : !torrentFile)}>
-              {inspectionBusy ? t("retrieving") : t("inspect")}
-            </Button>
+            {torrentInputKind === "torrent_file" ? (
+              <Button
+                type="button"
+                variant="secondary"
+                loading={inspectionBusy}
+                onClick={() => void inspect()}
+                disabled={inspectionBusy || !torrentFile}
+              >
+                {t("inspect")}
+              </Button>
+            ) : null}
             {inspectionStatus ? <div className="tt-secondary" role="status">{inspectionStatus}</div> : null}
             {inspectionError ? <div className="tt-inline-error" role="alert">{inspectionError}</div> : null}
-            {videoCandidates.length > 0 ? (
+            {videoCandidates.length > 0 && !autoselectInspection ? (
               <fieldset className="tt-fieldset">
                 <legend>{t("videoFile")}</legend>
                 {videoCandidates.map((file: TorrentManifestFile) => (
                   <label key={file.index} className="tt-torrent-file-option">
-                    <input type="radio" name="torrent-video" checked={selectedVideoIndex === file.index} onChange={() => { setSelectedVideoIndex(file.index); setSelectedSubtitleIndexes(new Set()); }} />
+                    <input type="radio" name="torrent-video" checked={selectedVideoIndex === file.index} onChange={() => { setSelectedVideoIndex(file.index); setSelectedSubtitleIndexes(subtitleIndexesFor(file, inspection?.files ?? [])); }} />
                     <span><strong>{file.name}</strong><small>{file.path} - {(file.sizeBytes / 1024 / 1024).toFixed(1)} MiB</small></span>
                   </label>
                 ))}
               </fieldset>
             ) : null}
-            {selectedVideo && subtitleCandidates.length === 0 ? <p className="tt-secondary">{t("noSubtitlesFound")}</p> : null}
+            {selectedVideo && subtitleCandidates.length === 0 && !autoselectInspection ? <p className="tt-secondary">{t("noSubtitlesFound")}</p> : null}
             {subtitleCandidates.length > 0 ? (
               <fieldset className="tt-fieldset">
                 <legend>{t("importSubtitles")}</legend>
@@ -370,6 +442,8 @@ function MediaDialogContent({
           >
             <Input
               id="media-youtube-id"
+              dir="ltr"
+              spellCheck={false}
               value={youtubeVideoId}
               onChange={(event) => setYoutubeVideoId(event.target.value)}
               placeholder={t("youtubePlaceholder")}
@@ -418,7 +492,7 @@ function MediaDialogContent({
             variant="primary"
             loading={submitting}
             disabled={
-              (sourceType === "torrent" && (!inspection || !selectedVideo)) ||
+              (sourceType === "torrent" && !torrentSubmitReady) ||
               (sourceType === "local_p2p" && (!localFile || Boolean(item)))
             }
           >

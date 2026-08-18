@@ -66,7 +66,7 @@ describe("RoomJoinGate", () => {
     );
     expect(markup).toContain("Friday movie night");
     expect(markup).toContain("Horizon Beyond");
-    expect(markup).toContain("JOIN LIVE");
+    expect(markup).toContain("Join room");
     expect(markup).toContain("Back");
   });
 

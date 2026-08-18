@@ -137,6 +137,8 @@ export type RoomChannelService = Readonly<{
   getWatchers: () => readonly RoomWatcher[];
   getLastAppliedVersion: () => number;
   replacePlaybackVersion: (stateVersion: number) => void;
+  sendP2pSignal: (payload: unknown) => Promise<void>;
+  subscribeP2pSignal: (listener: (payload: unknown) => void) => () => void;
 }>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -393,6 +395,7 @@ export function createRoomChannelService(
   let needsReconnectReconciliation = false;
   let disconnecting = false;
   let generation = 0;
+  const p2pSignalListeners = new Set<(payload: unknown) => void>();
 
   function setStatus(
     nextStatus: RoomChannelStatus,
@@ -402,15 +405,29 @@ export function createRoomChannelService(
     handlers?.onStatusChanged?.(nextStatus, error);
   }
 
+  let queuedReconciliationReason: ReconcileReason | null = null;
+
   function requestReconciliation(reason: ReconcileReason): Promise<void> {
     const activeHandlers = handlers;
     if (!activeHandlers) {
       return Promise.resolve();
     }
 
-    pendingReconciliation ??= Promise.resolve()
-      .then(() => activeHandlers.onReconcile(reason))
-      .catch((cause) => {
+    if (pendingReconciliation) {
+      queuedReconciliationReason = reason;
+      return pendingReconciliation;
+    }
+
+    pendingReconciliation = (async () => {
+      let nextReason: ReconcileReason | null = reason;
+      try {
+        while (nextReason) {
+          const currentReason = nextReason;
+          queuedReconciliationReason = null;
+          await activeHandlers.onReconcile(currentReason);
+          nextReason = queuedReconciliationReason;
+        }
+      } catch (cause) {
         setStatus(
           "error",
           new RoomChannelError(
@@ -419,10 +436,15 @@ export function createRoomChannelService(
             { cause },
           ),
         );
-      })
-      .finally(() => {
+      } finally {
         pendingReconciliation = null;
-      });
+        const leftover = queuedReconciliationReason;
+        queuedReconciliationReason = null;
+        if (leftover && handlers) {
+          void requestReconciliation(leftover);
+        }
+      }
+    })();
     return pendingReconciliation;
   }
 
@@ -570,6 +592,7 @@ export function createRoomChannelService(
     pendingConnect = null;
     cancelPendingConnect = null;
     pendingReconciliation = null;
+    queuedReconciliationReason = null;
     watchers = Object.freeze([]);
 
     let cleanupFailed = false;
@@ -606,6 +629,8 @@ export function createRoomChannelService(
         lastAppliedVersion,
         options.initialStateVersion,
       );
+      handlers.onStatusChanged?.(status, null);
+      handlers.onWatchersChanged?.(watchers);
       return pendingConnect ?? Promise.resolve();
     }
 
@@ -631,6 +656,7 @@ export function createRoomChannelService(
     const nextChannel = client.channel(topic, {
       config: {
         private: true,
+        broadcast: { ack: false, self: false },
         presence: { enabled: true },
       },
     });
@@ -657,6 +683,10 @@ export function createRoomChannelService(
       })
       .on("broadcast", { event: "room_changed" }, (message) => {
         void handleRoomChangedBroadcast(message);
+      })
+      .on("broadcast", { event: "p2p_signal" }, (message) => {
+        const payload = isRecord(message) && "payload" in message ? message.payload : message;
+        for (const listener of p2pSignalListeners) listener(payload);
       })
       .on("presence", { event: "sync" }, () => updateWatchers(nextChannel))
       .on("presence", { event: "join" }, () => updateWatchers(nextChannel))
@@ -765,6 +795,31 @@ export function createRoomChannelService(
     lastAppliedVersion = stateVersion;
   }
 
+  async function sendP2pSignal(payload: unknown): Promise<void> {
+    if (!channel || status !== "subscribed") {
+      throw new RoomChannelError(
+        "subscribe_failed",
+        "The private room channel is not ready for P2P signaling.",
+      );
+    }
+    const result = await channel.send({
+      type: "broadcast",
+      event: "p2p_signal",
+      payload,
+    });
+    if (result !== "ok") {
+      throw new RoomChannelError(
+        "subscribe_failed",
+        "The P2P signal could not be delivered over the private room channel.",
+      );
+    }
+  }
+
+  function subscribeP2pSignal(listener: (payload: unknown) => void): () => void {
+    p2pSignalListeners.add(listener);
+    return () => p2pSignalListeners.delete(listener);
+  }
+
   return Object.freeze({
     connect,
     disconnect,
@@ -772,6 +827,8 @@ export function createRoomChannelService(
     getWatchers: () => watchers,
     getLastAppliedVersion: () => lastAppliedVersion,
     replacePlaybackVersion,
+    sendP2pSignal,
+    subscribeP2pSignal,
   });
 }
 

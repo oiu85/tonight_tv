@@ -16,7 +16,6 @@ export function StatusBadge({
 }) {
   return (
     <span className={cx("tt-status", `tt-status-${tone}`)}>
-      <span className="tt-visually-hidden">Status: </span>
       {children}
     </span>
   );

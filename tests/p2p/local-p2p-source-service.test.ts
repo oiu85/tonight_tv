@@ -17,6 +17,7 @@ function runtimeMock(): LocalP2pRuntime {
     attachToMediaElement: vi.fn(),
     leaveLocalStream: vi.fn(async () => undefined),
     hasLocalSeed: vi.fn(() => false),
+    setSignalTransport: vi.fn(),
     getState: vi.fn(),
     subscribe: vi.fn(() => () => undefined),
     destroy: vi.fn(async () => undefined),
@@ -54,5 +55,16 @@ describe("local P2P source service", () => {
     expect(runtime.leaveLocalStream).toHaveBeenCalledWith(
       "abcdef0123456789abcdef0123456789abcdef01",
     );
+  });
+
+  it("does not re-hash the original file when this tab is already hosting it", async () => {
+    const runtime = runtimeMock();
+    vi.mocked(runtime.hasLocalSeed).mockReturnValue(true);
+    const service = createLocalP2pSourceService({} as never, runtime, { addMedia: vi.fn() });
+
+    await expect(
+      service.resumeDeviceStream(descriptor, new File(["x"], "fixture.mp4")),
+    ).resolves.toEqual(descriptor);
+    expect(runtime.seedLocalFile).not.toHaveBeenCalled();
   });
 });

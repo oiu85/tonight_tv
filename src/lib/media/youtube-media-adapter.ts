@@ -64,6 +64,7 @@ export function createYouTubeMediaPlayerAdapter(
   const seekWaiters = new Set<() => void>();
   const layoutRoot = mountElement.parentElement ?? mountElement;
   let resizeObserver: ResizeObserver | null = null;
+  let suppressingEndScreen = false;
 
   function measurePlayerBox(): { width: number; height: number } {
     const rect = layoutRoot.getBoundingClientRect();
@@ -172,8 +173,20 @@ export function createYouTubeMediaPlayerAdapter(
     events.onProgress?.();
 
     if (nextState === YOUTUBE_PLAYER_STATE.ENDED) {
+      suppressRelatedVideos();
       void events.onEnded?.();
     }
+  }
+
+  function suppressRelatedVideos(): void {
+    if (!player || suppressingEndScreen) return;
+    const duration = player.getDuration();
+    suppressingEndScreen = true;
+    player.mute();
+    if (Number.isFinite(duration) && duration > 0.5) {
+      player.seekTo(Math.max(0, duration - 0.35), true);
+    }
+    player.pauseVideo();
   }
 
   function createPlayer(api: YouTubeIframeApi): Promise<YouTubePlayer> {
@@ -190,6 +203,7 @@ export function createYouTubeMediaPlayerAdapter(
             disablekb: 1,
             enablejsapi: 1,
             fs: 0,
+            iv_load_policy: 3,
             origin: window.location.origin,
             widget_referrer: window.location.origin,
             playsinline: 1,
@@ -276,6 +290,7 @@ export function createYouTubeMediaPlayerAdapter(
     state = YOUTUBE_PLAYER_STATE.UNSTARTED;
     playbackPermission = "unknown";
     hasPlayed = false;
+    suppressingEndScreen = false;
     clearStallTimer();
     setBuffering(false);
     settleSeekWaiters();
@@ -301,6 +316,8 @@ export function createYouTubeMediaPlayerAdapter(
     youtubeVideoId = nextVideoId;
     const activePlayer = await ensurePlayer();
     if (destroyed || mediaId !== media.id || youtubeVideoId !== nextVideoId) return;
+    activePlayer.mute();
+    activePlayer.pauseVideo();
     activePlayer.cueVideoById({ videoId: nextVideoId, startSeconds: 0 });
     syncPlayerSize(activePlayer);
     // cueVideoById often never emits CUED until play. The iframe is already
@@ -382,13 +399,20 @@ export function createYouTubeMediaPlayerAdapter(
     isPaused: () =>
       state !== YOUTUBE_PLAYER_STATE.PLAYING &&
       state !== YOUTUBE_PLAYER_STATE.BUFFERING,
-    getCurrentTime: () => player?.getCurrentTime() ?? 0,
+    getCurrentTime: () => {
+      const currentPlayer = player as (YouTubePlayer & { getCurrentTime?: unknown }) | null;
+      return typeof currentPlayer?.getCurrentTime === "function"
+        ? Number(currentPlayer.getCurrentTime()) || 0
+        : 0;
+    },
     getDuration: () => {
       const duration = player?.getDuration() ?? 0;
       return Number.isFinite(duration) && duration > 0 ? duration : null;
     },
     seek: async (positionSec: number) => {
       if (!player || Math.abs(player.getCurrentTime() - positionSec) < 0.01) return;
+      player.mute();
+      player.pauseVideo();
       player.seekTo(positionSec, true);
       await new Promise<void>((resolve) => {
         let settled = false;

@@ -8,8 +8,8 @@ import { type FormEvent, useEffect, useId, useState } from "react";
 import { AuthServiceError, getBrowserAuthService } from "@/lib/auth/auth-service";
 import { Button, Field, Input } from "@/components/primitives";
 import { LocaleSwitcher, useTranslations } from "@/i18n";
+import { ThemeSwitcher } from "@/theme";
 import { Brand } from "@/components/app/brand";
-import { HelpLauncher } from "@/components/app/help";
 import { AuthBackLink, AuthShell } from "@/components/app/auth-marketing";
 
 export function LoginClient() {
@@ -135,8 +135,8 @@ export function LoginClient() {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <AuthBackLink />
         <div className="tt-inline-cluster" style={{ gap: 6 }}>
+          <ThemeSwitcher />
           <LocaleSwitcher variant="compact" />
-          <HelpLauncher topic="admin" label={tCommon("openGuide")} />
         </div>
       </div>
 

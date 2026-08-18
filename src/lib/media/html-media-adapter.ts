@@ -1,6 +1,6 @@
 "use client";
 
-import Hls, { type HlsConfig } from "hls.js";
+import type { HlsConfig } from "hls.js";
 
 import type {
   CanonicalPlaybackState,
@@ -78,13 +78,21 @@ type ReadyWaiter = Readonly<{
   reject: (error: MediaRuntimeError) => void;
 }>;
 
-const defaultHlsFactory: HlsRuntimeFactory = Object.freeze({
-  isSupported: () => Hls.isSupported(),
-  create: (config) => new Hls(config) as unknown as HlsRuntime,
-  errorEvent: Hls.Events.ERROR,
-  levelLoadedEvent: Hls.Events.LEVEL_LOADED,
-  manifestParsedEvent: Hls.Events.MANIFEST_PARSED,
-});
+let defaultHlsFactoryPromise: Promise<HlsRuntimeFactory> | null = null;
+
+export function loadDefaultHlsFactory(): Promise<HlsRuntimeFactory> {
+  defaultHlsFactoryPromise ??= import("hls.js").then((mod) => {
+    const Hls = mod.default;
+    return Object.freeze({
+      isSupported: () => Hls.isSupported(),
+      create: (config: Partial<HlsConfig>) => new Hls(config) as unknown as HlsRuntime,
+      errorEvent: Hls.Events.ERROR,
+      levelLoadedEvent: Hls.Events.LEVEL_LOADED,
+      manifestParsedEvent: Hls.Events.MANIFEST_PARSED,
+    });
+  });
+  return defaultHlsFactoryPromise;
+}
 
 /**
  * hls.js 1.7 startup/buffer policy. ABR remains automatic: the lowest level is
@@ -112,7 +120,7 @@ export function createHtmlMediaPlayerAdapter(
   options: HtmlMediaAdapterOptions = {},
 ): HtmlMediaPlayerAdapter {
   const events = options.events ?? {};
-  const hlsFactory = options.hlsFactory ?? defaultHlsFactory;
+  const injectedHlsFactory = options.hlsFactory;
   const listeners = new Map<string, EventListener>();
   const readyWaiters = new Set<ReadyWaiter>();
 
@@ -199,6 +207,17 @@ export function createHtmlMediaPlayerAdapter(
   function listen(eventName: string, listener: EventListener): void {
     mediaElement.addEventListener(eventName, listener);
     listeners.set(eventName, listener);
+  }
+
+  function isActive(): boolean {
+    return !destroyed && mediaId !== null;
+  }
+
+  function listenActive(eventName: string, listener: EventListener): void {
+    listen(eventName, (event) => {
+      if (!isActive()) return;
+      listener(event);
+    });
   }
 
   function getBufferedAheadSec(): number {
@@ -297,71 +316,68 @@ export function createHtmlMediaPlayerAdapter(
     events.onProgress?.();
   }
 
-  listen("loadstart", () => {
+  listenActive("loadstart", () => {
     clearStallTimer();
     setBuffering(false);
   });
-  listen("loadedmetadata", () => {
+  listenActive("loadedmetadata", () => {
     updateDurationFromMediaElement();
     settleReadyWaiters();
     events.onProgress?.();
   });
-  listen("durationchange", updateDurationFromMediaElement);
-  listen("loadeddata", clearBufferingWithEvidence);
-  listen("canplay", () => {
+  listenActive("durationchange", updateDurationFromMediaElement);
+  listenActive("loadeddata", clearBufferingWithEvidence);
+  listenActive("canplay", () => {
     clearBufferingWithEvidence();
     settleReadyWaiters();
     events.onProgress?.();
   });
-  listen("canplaythrough", clearBufferingWithEvidence);
-  listen("playing", () => {
+  listenActive("canplaythrough", clearBufferingWithEvidence);
+  listenActive("playing", () => {
     hasPlayed = true;
     clearStallTimer();
     setBuffering(false);
   });
-  listen("play", clearBufferingWithEvidence);
-  listen("pause", () => {
+  listenActive("play", clearBufferingWithEvidence);
+  listenActive("pause", () => {
     clearStallTimer();
     setBuffering(false);
   });
-  listen("waiting", scheduleStallCheck);
-  listen("stalled", scheduleStallCheck);
-  listen("seeking", () => {
+  listenActive("waiting", scheduleStallCheck);
+  listenActive("stalled", scheduleStallCheck);
+  listenActive("seeking", () => {
     clearStallTimer();
     setBuffering(false);
   });
-  listen("seeked", () => {
+  listenActive("seeked", () => {
     settleSeekWaiters();
     clearBufferingWithEvidence();
     events.onProgress?.();
   });
-  listen("progress", noteProgress);
-  listen("timeupdate", noteProgress);
-  listen("ended", () => {
+  listenActive("progress", noteProgress);
+  listenActive("timeupdate", noteProgress);
+  listenActive("ended", () => {
     clearStallTimer();
     setBuffering(false);
     void events.onEnded?.();
   });
-  listen("error", () => {
-    if (destroyed || mediaId === null) {
-      return;
-    }
+  listenActive("error", () => {
     if (!hls && !mediaElement.currentSrc && !mediaElement.src) {
       return;
     }
     reportError(classifyHtmlMediaError(mediaElement.error));
   });
-  listen("emptied", () => {
+  listenActive("emptied", () => {
     clearStallTimer();
     setBuffering(false);
     settleSeekWaiters();
   });
-  listen("abort", () => {
+  listenActive("abort", () => {
     clearStallTimer();
     setBuffering(false);
     settleSeekWaiters();
   });
-  listen("suspend", clearBufferingWithEvidence);
+  listenActive("suspend", clearBufferingWithEvidence);
 
   function clearSource(): void {
     sourceGeneration += 1;
@@ -417,6 +433,7 @@ export function createHtmlMediaPlayerAdapter(
     }
     mediaElement.crossOrigin = "anonymous";
     if (runtimeSource === "hls" && !supportsNativeHls(mediaElement)) {
+      const hlsFactory = injectedHlsFactory ?? await loadDefaultHlsFactory();
       if (!hlsFactory.isSupported()) {
         const error = unsupportedHlsRuntimeError();
         reportError(error);
@@ -557,6 +574,7 @@ export function createHtmlMediaPlayerAdapter(
     }
     clearStallTimer();
     setBuffering(false);
+    mediaElement.pause();
     mediaElement.currentTime = positionSec;
     if (!mediaElement.seeking) {
       return;

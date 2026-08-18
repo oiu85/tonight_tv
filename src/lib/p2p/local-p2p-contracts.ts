@@ -1,12 +1,21 @@
-export const LOCAL_P2P_TRACKERS = Object.freeze([
-  "wss://tracker.btorrent.xyz",
-  "wss://tracker.openwebtorrent.com",
-  "wss://tracker.webtorrent.dev",
-] as const);
-export const LOCAL_P2P_SERVICE_WORKER_URL = "/webtorrent/sw.min.js";
-export const LOCAL_P2P_SERVICE_WORKER_SCOPE = "/";
-export type LocalP2pStatus = "unsupported" | "idle" | "preparing" | "hashing" | "seeding" | "connecting" | "ready" | "buffering" | "no_peers" | "error" | "stopped";
-export type LocalP2pDescriptor = Readonly<{ infoHash: string; magnetUri: string; fileName: string; fileSize: number; mimeType: string | null }>;
-export type LocalP2pState = Readonly<{ status: LocalP2pStatus; infoHash: string | null; peerCount: number; uploadSpeed: number; downloadSpeed: number; progress: number; error: LocalP2pError | null }>;
-export type LocalP2pErrorCode = "p2p_unsupported" | "p2p_service_worker_unavailable" | "p2p_initialization_failed" | "p2p_invalid_file" | "p2p_invalid_descriptor" | "p2p_seed_failed" | "p2p_join_failed" | "p2p_stream_failed" | "p2p_stopped";
-export class LocalP2pError extends Error { readonly code: LocalP2pErrorCode; constructor(code: LocalP2pErrorCode, message: string, options?: ErrorOptions) { super(message, options); this.name = "LocalP2pError"; this.code = code; } }
+export { LOCAL_P2P_RTC_CONFIG } from "./domain/ice";
+export {
+  LOCAL_P2P_SERVICE_WORKER_SCOPE,
+  LOCAL_P2P_SERVICE_WORKER_URL,
+  LOCAL_P2P_TRACKERS,
+} from "./domain/constants";
+export { LocalP2pError, type LocalP2pErrorCode } from "./domain/errors";
+export { magnetWithTrackers, mimeTypeFromFileName } from "./domain/magnet";
+export {
+  parseLocalP2pSignal,
+  shouldInitiateSignal,
+  type LocalP2pSignalKind,
+  type LocalP2pSignalMessage,
+  type LocalP2pSignalRole,
+  type LocalP2pSignalTransport,
+} from "./domain/signal";
+export {
+  type LocalP2pDescriptor,
+  type LocalP2pState,
+  type LocalP2pStatus,
+} from "./domain/types";

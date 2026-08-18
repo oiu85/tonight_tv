@@ -6,6 +6,7 @@ import { NextIntlClientProvider } from "next-intl";
 import { type ReactNode } from "react";
 
 import { LocaleProvider } from "../src/i18n/locale-provider";
+import { ThemeProvider } from "../src/theme/theme-provider";
 import en from "../messages/en.json";
 
 /**
@@ -18,10 +19,12 @@ import en from "../messages/en.json";
  */
 export function I18nHarness({ children, locale = "en" }: { children: ReactNode; locale?: "en" | "ar" }) {
   return (
-    <LocaleProvider initialLocale={locale} initialMessages={en as never}>
-      <NextIntlClientProvider locale={locale} messages={en} timeZone="UTC">
-        {children}
-      </NextIntlClientProvider>
-    </LocaleProvider>
+    <ThemeProvider initialTheme="dark">
+      <LocaleProvider initialLocale={locale} initialMessages={en as never}>
+        <NextIntlClientProvider locale={locale} messages={en} timeZone="UTC">
+          {children}
+        </NextIntlClientProvider>
+      </LocaleProvider>
+    </ThemeProvider>
   );
 }

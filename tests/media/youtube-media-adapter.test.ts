@@ -75,11 +75,15 @@ describe("YouTube media adapter", () => {
     await adapter.loadMedia(media);
     const options = fixture.getOptions();
     expect(options).not.toBeNull();
+    expect(fixture.player.mute).toHaveBeenCalled();
+    expect(fixture.player.pauseVideo).toHaveBeenCalled();
     expect(fixture.player.cueVideoById).toHaveBeenCalledWith({
       videoId: media.youtubeVideoId,
       startSeconds: 0,
     });
-    expect(options?.playerVars.widget_referrer).toBe(window.location.origin);
+    expect(options?.playerVars.rel).toBe(0);
+    expect(options?.playerVars.controls).toBe(0);
+    expect(options?.playerVars.iv_load_policy).toBe(3);
     expect(options?.width).toBe("1280");
     expect(options?.height).toBe("720");
     expect(fixture.player.setSize).toHaveBeenCalled();
@@ -98,7 +102,7 @@ describe("YouTube media adapter", () => {
     adapter.setMuted(true);
 
     expect(fixture.player.playVideo).toHaveBeenCalledOnce();
-    expect(fixture.player.pauseVideo).toHaveBeenCalledOnce();
+    expect(fixture.player.pauseVideo).toHaveBeenCalled();
     expect(fixture.player.seekTo).toHaveBeenCalledWith(45, true);
     expect(adapter.getCurrentTime()).toBe(45);
     expect(adapter.getDuration()).toBe(180);
@@ -136,6 +140,29 @@ describe("YouTube media adapter", () => {
       videoId: "dQw4w9WgXcQ",
       startSeconds: 0,
     });
+    adapter.destroy();
+  });
+
+  it("seeks off the last frame when a video ends so related videos are not shown", async () => {
+    const fixture = createYouTubeFixture();
+    const onEnded = vi.fn();
+    const adapter = createYouTubeMediaPlayerAdapter(document.createElement("div"), {
+      loadApi: vi.fn(async () => fixture.api),
+      events: { onEnded },
+    });
+
+    await adapter.loadMedia(media);
+    const options = fixture.getOptions();
+    fixture.player.seekTo.mockClear();
+    fixture.player.pauseVideo.mockClear();
+    options?.events.onStateChange({
+      target: fixture.player,
+      data: YOUTUBE_PLAYER_STATE.ENDED,
+    });
+
+    expect(onEnded).toHaveBeenCalledOnce();
+    expect(fixture.player.seekTo).toHaveBeenCalledWith(179.65, true);
+    expect(fixture.player.pauseVideo).toHaveBeenCalled();
     adapter.destroy();
   });
 });

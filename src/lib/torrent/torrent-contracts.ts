@@ -39,6 +39,7 @@ export type TorrentInspection = Readonly<{
   files: readonly TorrentManifestFile[];
   totalFiles: number;
   truncated: boolean;
+  magnetUri?: string | null;
 }>;
 
 export type TorrentAudioTrack = Readonly<{

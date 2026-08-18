@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   classifyTorrentFile,
+  extractInfoHashFromTorrentInput,
+  inspectionFromMagnetIdentity,
   parseMagnetIdentity,
   parseTorrentFileIdentity,
   rankSubtitleCandidates,
   rankVideoCandidates,
+  WEBTOR_AUTOSELECT_FILE_PATH,
 } from "../../src/lib/torrent/torrent-manifest";
 
 function concat(parts: readonly Uint8Array[]): Uint8Array {
@@ -60,9 +63,38 @@ describe("Torrent input parsing", () => {
   it("accepts a canonical Magnet URI and rejects malformed input", async () => {
     const hash = "0123456789abcdef0123456789abcdef01234567";
     await expect(parseMagnetIdentity(`magnet:?xt=urn:btih:${hash}&dn=Legal+Fixture`))
-      .resolves.toMatchObject({ infoHash: hash });
+      .resolves.toMatchObject({ infoHash: hash, magnetUri: `magnet:?xt=urn:btih:${hash}&dn=Legal+Fixture` });
     await expect(parseMagnetIdentity("magnet:?dn=missing-hash"))
       .rejects.toMatchObject({ category: "invalid_magnet" });
+  });
+
+  it("accepts a raw info hash and a webtor.io URL as torrent identity", async () => {
+    const hash = "52fd58172c296021f2e351b8a12bbc8be7c88f8d";
+    await expect(parseMagnetIdentity(hash)).resolves.toMatchObject({
+      infoHash: hash,
+      magnetUri: `magnet:?xt=urn:btih:${hash}`,
+    });
+    await expect(parseMagnetIdentity(`https://webtor.io/${hash.toUpperCase()}`)).resolves.toMatchObject({
+      infoHash: hash,
+      magnetUri: `magnet:?xt=urn:btih:${hash}`,
+    });
+    expect(extractInfoHashFromTorrentInput(`https://webtor.io/${hash}/file.mp4`)).toBe(hash);
+  });
+
+  it("builds a playable autoselect inspection when only the magnet identity is known", async () => {
+    const identity = await parseMagnetIdentity(`magnet:?xt=urn:btih:${"52fd58172c296021f2e351b8a12bbc8be7c88f8d"}&dn=Legal+Fixture`);
+    expect(inspectionFromMagnetIdentity(identity)).toMatchObject({
+      infoHash: identity.infoHash,
+      torrentName: "Legal Fixture",
+      status: "ready",
+      files: [{
+        path: WEBTOR_AUTOSELECT_FILE_PATH,
+        name: "Legal Fixture.mp4",
+        kind: "video",
+        playableCandidate: true,
+        sizeBytes: 0,
+      }],
+    });
   });
 
   it("parses legal synthetic metadata with nested and Unicode paths", async () => {

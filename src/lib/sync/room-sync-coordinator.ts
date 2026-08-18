@@ -39,6 +39,10 @@ import {
 } from "./sync-core";
 
 const FORCE_ALIGNMENT_TOLERANCE_SEC = 0.05;
+/** Ignore tiny clock/anchor noise; only treat jumps at/above a hard seek as a real reposition. */
+const AUTHORITATIVE_REPOSITION_SEC = DEFAULT_DRIFT_POLICY.hardSeekThresholdSec;
+const HARD_SEEK_COOLDOWN_MS = 4_000;
+const SEEK_STORM_OVERRIDE_SEC = 8;
 const DEFAULT_LONG_HIDDEN_THRESHOLD_MS = 15_000;
 const DEFAULT_MEDIA_READY_TIMEOUT_MS = 30_000;
 
@@ -243,6 +247,7 @@ export function createRoomSyncCoordinator(
   let buffering = false;
   let hiddenAtMonotonicMs: number | null = null;
   let localSeekInProgress = false;
+  let lastHardSeekMonotonicMs = Number.NEGATIVE_INFINITY;
   let recoveringFromBuffer = false;
   let mediaFailed = false;
   let pendingAlignmentVersion: number | null = null;
@@ -325,6 +330,29 @@ export function createRoomSyncCoordinator(
       return player.getSeekableTarget(positionSec);
     }
     return player.isSeekable(positionSec) ? positionSec : null;
+  }
+
+  function canHardSeek(absoluteDriftSec: number): boolean {
+    if (absoluteDriftSec >= SEEK_STORM_OVERRIDE_SEC) {
+      return true;
+    }
+    return monotonicNowMs() - lastHardSeekMonotonicMs >= HARD_SEEK_COOLDOWN_MS;
+  }
+
+  async function performHardSeek(targetSec: number, nextStatus: RoomSyncStatus): Promise<boolean> {
+    if (!player.isPaused()) {
+      await player.pause();
+    }
+    localSeekInProgress = true;
+    setStatus(nextStatus);
+    try {
+      await player.seek(targetSec);
+    } finally {
+      localSeekInProgress = false;
+    }
+    lastHardSeekMonotonicMs = monotonicNowMs();
+    pendingAlignmentVersion = null;
+    return true;
   }
 
   function canonicalStatus(
@@ -440,23 +468,17 @@ export function createRoomSyncCoordinator(
     if (
       effectiveForceAlignment &&
       Math.abs(driftSec) >= FORCE_ALIGNMENT_TOLERANCE_SEC &&
-      seekableTarget !== null
+      seekableTarget !== null &&
+      canHardSeek(Math.abs(driftSec))
     ) {
       resetPlaybackRate();
-      localSeekInProgress = true;
-      setStatus("seeking");
-      try {
-        if (alignmentToken !== alignmentGeneration) {
-          return;
-        }
-        await player.seek(seekableTarget);
-      } finally {
-        localSeekInProgress = false;
-      }
       if (alignmentToken !== alignmentGeneration) {
         return;
       }
-      pendingAlignmentVersion = null;
+      await performHardSeek(seekableTarget, "seeking");
+      if (alignmentToken !== alignmentGeneration) {
+        return;
+      }
     } else {
       if (effectiveForceAlignment) {
         pendingAlignmentVersion = null;
@@ -491,25 +513,22 @@ export function createRoomSyncCoordinator(
             player.setPlaybackRate(decision.rate);
           }
           rateCorrectionActive = true;
-          if (recoveringFromBuffer) {
-            setStatus("catching_up");
-          }
           break;
         case "seek":
           if (decision.resetRate) {
             resetPlaybackRate();
           }
-          if (seekableTarget !== null) {
-            localSeekInProgress = true;
-            setStatus(recoveringFromBuffer ? "catching_up" : "seeking");
-            try {
-              if (alignmentToken !== alignmentGeneration) {
-                return;
-              }
-              await player.seek(seekableTarget);
-            } finally {
-              localSeekInProgress = false;
+          if (
+            seekableTarget !== null &&
+            canHardSeek(Math.abs(driftSec))
+          ) {
+            if (alignmentToken !== alignmentGeneration) {
+              return;
             }
+            await performHardSeek(
+              seekableTarget,
+              "seeking",
+            );
           }
           break;
         case "none":
@@ -532,14 +551,7 @@ export function createRoomSyncCoordinator(
       setStatus("buffering");
       return;
     }
-    if (
-      rateCorrectionActive &&
-      recoveringFromBuffer &&
-      state.status === "playing"
-    ) {
-      setStatus("catching_up");
-      return;
-    }
+
     recoveringFromBuffer = false;
     setStatus(canonicalStatus(state));
   }
@@ -583,6 +595,32 @@ export function createRoomSyncCoordinator(
       recoveringFromBuffer = false;
     }
     publishState();
+
+    const shouldHoldPresentation =
+      mediaChanged ||
+      statusChanged ||
+      (previousState !== null && isAuthoritativeReposition(previousState, nextState));
+    if (
+      shouldHoldPresentation &&
+      status !== "playback_blocked" &&
+      status !== "error" &&
+      nextState.status !== "idle"
+    ) {
+      if (mediaChanged || player.getMediaId() !== nextState.current_media_id) {
+        setStatus("starting");
+      } else if (nextState.status === "playing") {
+        setStatus("seeking");
+      } else {
+        setStatus("aligning");
+      }
+    }
+
+    if (
+      (nextState.status !== "playing" || shouldHoldPresentation) &&
+      !player.isPaused()
+    ) {
+      await player.pause();
+    }
 
     if (nextState.status === "idle") {
       if (player.getMediaId() !== null) {
@@ -785,7 +823,7 @@ export function createRoomSyncCoordinator(
     return (
       previousAtNextAnchor !== null &&
       Math.abs(previousAtNextAnchor - next.anchor_position_sec) >=
-        FORCE_ALIGNMENT_TOLERANCE_SEC
+        AUTHORITATIVE_REPOSITION_SEC
     );
   }
 
@@ -928,6 +966,10 @@ export function createRoomSyncCoordinator(
           },
         });
 
+        channelStatus = channelService.getStatus();
+        watchers = channelService.getWatchers();
+        publishState();
+
         if (startGeneration !== generation) {
           return;
         }
@@ -982,6 +1024,7 @@ export function createRoomSyncCoordinator(
     recoveringFromBuffer = false;
     mediaFailed = false;
     localSeekInProgress = false;
+    lastHardSeekMonotonicMs = Number.NEGATIVE_INFINITY;
     hiddenAtMonotonicMs = null;
     channelStatus = "closed";
     setStatus("stopped", null);
@@ -993,7 +1036,8 @@ export function createRoomSyncCoordinator(
       status === "stopped" ||
       status === "error" ||
       hiddenAtMonotonicMs !== null ||
-      mediaFailed
+      mediaFailed ||
+      localSeekInProgress
     ) {
       return;
     }
@@ -1077,11 +1121,6 @@ export function createRoomSyncCoordinator(
     const wasBuffering = buffering;
     buffering = false;
     recoveringFromBuffer = wasBuffering;
-    if (wasBuffering && canonicalPlayback?.status === "playing") {
-      setStatus("catching_up");
-    }
-    // Buffer recovery is a purely local recomputation. It never pauses or
-    // mutates the authoritative room state.
     await tick();
   }
 

@@ -74,6 +74,8 @@ export function SubtitleManagerDialog({
             <Field label={t("lang")} htmlFor="sub-lang">
               <Input
                 id="sub-lang"
+                dir="ltr"
+                spellCheck={false}
                 value={languageCode}
                 maxLength={35}
                 onChange={(event) => setLanguageCode(event.target.value)}

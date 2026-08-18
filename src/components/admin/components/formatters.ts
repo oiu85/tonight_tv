@@ -1,5 +1,5 @@
 import type { OwnedRoomListItem, RoomStatus } from "@/lib/rooms/room-service";
-import type { Locale } from "@/i18n";
+import { DEFAULT_LOCALE, type Locale } from "@/i18n";
 
 /**
  * Time formatters used across the admin workspace. We pull them into a
@@ -18,7 +18,7 @@ function pickNumberLocale(locale: Locale): string {
   return "en";
 }
 
-export function formatRelative(iso: string, locale: Locale = "en", now: number = Date.now()): string {
+export function formatRelative(iso: string, locale: Locale = DEFAULT_LOCALE, now: number = Date.now()): string {
   const time = new Date(iso).getTime();
   if (Number.isNaN(time)) return "";
   const diffMs = now - time;
@@ -47,7 +47,7 @@ export function formatRelative(iso: string, locale: Locale = "en", now: number =
   return new Intl.DateTimeFormat(numberLocale, { dateStyle: "medium" }).format(new Date(iso));
 }
 
-export function formatDate(iso: string | null | undefined, locale: Locale = "en"): string {
+export function formatDate(iso: string | null | undefined, locale: Locale = DEFAULT_LOCALE): string {
   if (!iso) return "—";
   const numberLocale = pickNumberLocale(locale);
   // Arabic uses the Gregorian calendar by default in the Intl API; this

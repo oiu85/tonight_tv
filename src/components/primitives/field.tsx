@@ -27,7 +27,24 @@ export function Field({
 }
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(
-  function Input({ className, ...props }, ref) {
-    return <input ref={ref} className={cx("tt-input", className)} {...props} />;
+  function Input({ className, type, inputMode, dir, autoComplete, ...props }, ref) {
+    const looksTechnical =
+      type === "email" ||
+      type === "url" ||
+      inputMode === "email" ||
+      inputMode === "url" ||
+      autoComplete === "email" ||
+      autoComplete === "url";
+    return (
+      <input
+        ref={ref}
+        className={cx("tt-input", className)}
+        type={type}
+        inputMode={inputMode}
+        autoComplete={autoComplete}
+        dir={dir ?? (looksTechnical ? "ltr" : undefined)}
+        {...props}
+      />
+    );
   },
 );

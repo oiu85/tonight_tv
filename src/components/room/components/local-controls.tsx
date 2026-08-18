@@ -1,9 +1,9 @@
 "use client";
 
-import { Captions, Maximize, PictureInPicture, Volume2, VolumeX } from "lucide-react";
+import { Captions, Volume2, VolumeX } from "lucide-react";
 import { memo } from "react";
 
-import { Button, IconButton } from "@/components/primitives";
+import { IconButton } from "@/components/primitives";
 import { useTranslations } from "@/i18n";
 import type { RoomSnapshot } from "@/lib/rooms/room-service";
 
@@ -30,7 +30,7 @@ export const LocalControls = memo(function LocalControls(props: LocalControlsPro
     <div className="tt-control-row tt-control-row-secondary">
       <div className="tt-volume-control" aria-label={t("mute")}>
         <IconButton variant="ghost" label={props.muted ? t("unmute") : t("mute")} onClick={props.onMutedChange}>
-          {props.muted ? <VolumeX size={18} aria-hidden /> : <Volume2 size={18} aria-hidden />}
+          {props.muted ? <VolumeX size={15} aria-hidden /> : <Volume2 size={15} aria-hidden />}
         </IconButton>
         <input
           aria-label={t("mute")}
@@ -64,28 +64,6 @@ export const LocalControls = memo(function LocalControls(props: LocalControlsPro
           ))}
         </select>
       </label>
-
-      <Button
-        variant="ghost"
-        className="tt-local-control"
-        onClick={props.onPictureInPicture}
-        disabled={!props.pipAvailable}
-        aria-label={t("pip")}
-      >
-        <PictureInPicture size={16} aria-hidden />
-        <span className="tt-button-label">{t("pip")}</span>
-      </Button>
-
-      <Button
-        variant="ghost"
-        className="tt-local-control"
-        onClick={props.onFullscreen}
-        disabled={!props.fullscreenAvailable}
-        aria-label={t("fullscreen")}
-      >
-        <Maximize size={16} aria-hidden />
-        <span className="tt-button-label">{t("fullscreen")}</span>
-      </Button>
     </div>
   );
 });

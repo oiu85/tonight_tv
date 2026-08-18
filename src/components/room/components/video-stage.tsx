@@ -16,20 +16,55 @@ import {
   VolumeX,
   Wifi,
 } from "lucide-react";
-import { memo, type CSSProperties, type RefObject } from "react";
+import { memo, useEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
 
-import { Button, IconButton } from "@/components/primitives";
+import { Button, IconButton, cx } from "@/components/primitives";
 import { useTranslations } from "@/i18n";
 import type { MediaRuntimeError } from "@/lib/media/media-source";
 import type { LocalP2pState } from "@/lib/p2p/local-p2p-contracts";
 import { posterForTitle } from "@/lib/room/posters";
 import type { RoomSnapshot } from "@/lib/rooms/room-service";
 import type { RoomSyncStatus } from "@/lib/sync/room-sync-coordinator";
-import { mediaErrorCopy } from "./playback-helpers";
+import { usePlayerClock } from "../hooks/use-room-session";
+import { mediaErrorCopy, isPlaybackPresentationHeld } from "./playback-helpers";
+
+function useHeldFlag(active: boolean, appearAfterMs: number, minVisibleMs: number): boolean {
+  const [visible, setVisible] = useState(false);
+  const visibleRef = useRef(false);
+  const shownAtRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    let timer: number | undefined;
+    if (active) {
+      if (visibleRef.current) {
+        return;
+      }
+      timer = window.setTimeout(() => {
+        visibleRef.current = true;
+        shownAtRef.current = performance.now();
+        setVisible(true);
+      }, appearAfterMs);
+    } else if (visibleRef.current) {
+      const elapsed = shownAtRef.current === null ? minVisibleMs : performance.now() - shownAtRef.current;
+      timer = window.setTimeout(() => {
+        visibleRef.current = false;
+        shownAtRef.current = null;
+        setVisible(false);
+      }, Math.max(0, minVisibleMs - elapsed));
+    }
+    return () => {
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, [active, appearAfterMs, minVisibleMs]);
+
+  return visible;
+}
 
 export const LocalVideoTransport = memo(function LocalVideoTransport({
-  currentTime,
-  duration,
+  currentTime: currentTimeProp,
+  duration: durationProp,
   onMuteToggle,
   muted,
   onCaptionsToggle,
@@ -40,8 +75,8 @@ export const LocalVideoTransport = memo(function LocalVideoTransport({
   pipAvailable,
   fullscreenAvailable,
 }: {
-  currentTime: number;
-  duration: number | null;
+  currentTime?: number;
+  duration?: number | null;
   onMuteToggle: () => void;
   muted: boolean;
   onCaptionsToggle: () => void;
@@ -53,6 +88,9 @@ export const LocalVideoTransport = memo(function LocalVideoTransport({
   fullscreenAvailable: boolean;
 }) {
   const t = useTranslations("room.transport");
+  const clock = usePlayerClock();
+  const currentTime = currentTimeProp ?? clock.currentTime;
+  const duration = durationProp ?? clock.duration;
   return (
     <div
       className="tt-video-transport"
@@ -70,7 +108,7 @@ export const LocalVideoTransport = memo(function LocalVideoTransport({
       role="toolbar"
       aria-label={t("transportAria")}
     >
-      <span className="tt-transport-time tt-num">
+      <span className="tt-transport-time tt-num" dir="ltr">
         {formatTransportTime(currentTime)} / {duration !== null ? formatTransportTime(duration) : "--:--"}
       </span>
       <IconButton
@@ -159,9 +197,9 @@ export const VideoStage = memo(function VideoStage({
   status: RoomSyncStatus;
   mediaError: MediaRuntimeError | null;
   localP2pState: LocalP2pState;
-  reason: string | null;
-  currentTime: number;
-  duration: number | null;
+  reason?: string | null;
+  currentTime?: number;
+  duration?: number | null;
   onStartWatching: () => void;
   onRetry: () => void;
   onAddMedia?: () => void;
@@ -180,44 +218,124 @@ export const VideoStage = memo(function VideoStage({
   const t = useTranslations("room.video");
   const tErrors = useTranslations("room.errors");
   const tCommon = useTranslations("common");
+  const tLive = useTranslations("room.liveRegion");
   const owner = snapshot.caller.is_owner;
   const youtubeActive = snapshot.current_media?.source_type === "youtube";
+  const torrentActive = snapshot.current_media?.source_type === "torrent";
+  const htmlVideoActive = !youtubeActive && !torrentActive;
   const localP2pActive = snapshot.current_media?.source_type === "local_p2p";
   const playback = snapshot.playback;
   const empty = playback.status === "idle" || !snapshot.current_media;
   const blocked = status === "playback_blocked" || mediaError?.category === "autoplay_permission_blocked";
-  const showReconnect =
+  const connectingP2p = localP2pActive && (localP2pState.status === "connecting" || localP2pState.status === "preparing" || localP2pState.status === "hashing");
+  const reconnecting =
     !empty &&
-    status === "synchronizing" &&
-    (reason === "visibility_resume" || reason === "realtime_reconnected");
-  const showLoading =
+    (reason === "visibility_resume" || reason === "realtime_reconnected") &&
+    (status === "synchronizing" || status === "starting");
+  const presentationHeld =
     !empty &&
-    !showReconnect &&
-    (status === "starting" || status === "aligning" || status === "seeking" || status === "synchronizing");
-  const showCatchingUp = status === "catching_up" && !mediaError;
-  const showBuffering = status === "buffering" && !mediaError;
+    !blocked &&
+    (connectingP2p || isPlaybackPresentationHeld(status));
+  const showCatchingUp = status === "catching_up" && !mediaError && !blocked && !presentationHeld;
+  const showBuffering = status === "buffering" && !mediaError && !blocked && !presentationHeld;
   const ended = playback.status === "ended";
-  const paused = playback.status === "paused";
+  const paused = status === "paused";
   const fatalMediaError = mediaError !== null && mediaError.fatal && !blocked ? mediaError : null;
   const waitingForPeers = localP2pActive && localP2pState.status === "no_peers" && !fatalMediaError;
-  const connectingP2p = localP2pActive && (localP2pState.status === "connecting" || localP2pState.status === "preparing" || localP2pState.status === "hashing");
-  const showTransport = !empty && !blocked && !ended && !fatalMediaError;
+  const ownerWatchingRemoteHost = owner && localP2pActive && !localP2pState.hosting && !fatalMediaError && (localP2pState.status === "ready" || localP2pState.status === "no_peers" || localP2pState.status === "seeding");
+  const heldBuffering = useHeldFlag(showBuffering && !waitingForPeers, 220, 420);
+  const heldCatchingUp = useHeldFlag(showCatchingUp && !heldBuffering && !waitingForPeers, 120, 360);
+  const holdTitle =
+    status === "starting" || connectingP2p
+      ? connectingP2p
+        ? t("p2pConnecting")
+        : t("loading")
+      : status === "aligning" || status === "synchronizing"
+        ? t("joining")
+        : t("seeking");
+  const showTransport = !empty && !blocked && !ended && !fatalMediaError && !presentationHeld;
+  const [isNarrow, setIsNarrow] = useState(false);
+  const canHideChrome = isNarrow && showTransport && playback.status === "playing" && !heldBuffering && !presentationHeld;
+  const [chromeVisible, setChromeVisible] = useState(true);
+  const hideChromeTimer = useRef<number | null>(null);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 720px)");
+    const sync = () => setIsNarrow(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+
+  useEffect(() => {
+    if (hideChromeTimer.current !== null) {
+      window.clearTimeout(hideChromeTimer.current);
+      hideChromeTimer.current = null;
+    }
+    if (!canHideChrome) {
+      hideChromeTimer.current = window.setTimeout(() => {
+        setChromeVisible(true);
+        hideChromeTimer.current = null;
+      }, 0);
+      return () => {
+        if (hideChromeTimer.current !== null) {
+          window.clearTimeout(hideChromeTimer.current);
+          hideChromeTimer.current = null;
+        }
+      };
+    }
+    hideChromeTimer.current = window.setTimeout(() => setChromeVisible(false), 2600);
+    return () => {
+      if (hideChromeTimer.current !== null) {
+        window.clearTimeout(hideChromeTimer.current);
+        hideChromeTimer.current = null;
+      }
+    };
+  }, [canHideChrome]);
+
+  function revealChrome() {
+    setChromeVisible(true);
+    if (!canHideChrome) return;
+    if (hideChromeTimer.current !== null) {
+      window.clearTimeout(hideChromeTimer.current);
+    }
+    hideChromeTimer.current = window.setTimeout(() => setChromeVisible(false), 2600);
+  }
+
   const heroUrl = posterForTitle(snapshot.current_media?.title).hero;
   const heroStyle = { ["--tt-hero-url" as string]: `url(${heroUrl})` } as CSSProperties;
+  const announcement = blocked
+    ? tLive("permissionNeeded")
+    : reconnecting
+      ? tLive("rejoining")
+      : heldBuffering
+        ? tLive("buffering")
+        : paused
+          ? tLive("paused")
+          : status === "live"
+            ? tLive("synced")
+            : "";
 
   return (
     <section
       ref={stageRef}
-      className="tt-video-stage"
+      className={cx(
+        "tt-video-stage",
+        canHideChrome && !chromeVisible && "tt-video-stage--chrome-hidden",
+        presentationHeld && "tt-video-stage--held",
+      )}
       aria-label={t("ariaStage")}
       aria-describedby="player-status"
+      onPointerMove={revealChrome}
+      onPointerDown={revealChrome}
+      onFocus={revealChrome}
     >
       <video
         ref={videoRef}
         playsInline
         preload="auto"
         aria-label={snapshot.current_media?.title ?? t("label")}
-        className={youtubeActive ? "tt-media-layer--inactive" : undefined}
+        className={htmlVideoActive ? undefined : "tt-media-layer--inactive"}
       />
       <div
         ref={youtubeMountRef}
@@ -227,27 +345,34 @@ export const VideoStage = memo(function VideoStage({
         aria-hidden={!youtubeActive}
         aria-label={youtubeActive ? snapshot.current_media?.title : undefined}
       />
+      {youtubeActive ? <div className="tt-youtube-click-shield" aria-hidden="true" /> : null}
       <div
         ref={webtorMountRef}
         className={
-          snapshot.current_media?.source_type === "torrent"
-            ? "tt-webtor-mount"
-            : "tt-webtor-mount tt-media-layer--inactive"
+          torrentActive ? "tt-webtor-mount" : "tt-webtor-mount tt-media-layer--inactive"
         }
-        aria-hidden={snapshot.current_media?.source_type !== "torrent"}
-        aria-label={
-          snapshot.current_media?.source_type === "torrent"
-            ? snapshot.current_media.title
-            : undefined
-        }
+        aria-hidden={!torrentActive}
+        aria-label={torrentActive ? snapshot.current_media?.title : undefined}
       />
-      <span className="tt-video-label" aria-hidden="true">
+      <span
+        className={empty ? "tt-video-label" : "tt-video-label tt-video-label--title"}
+        aria-hidden="true"
+      >
         <span className="tt-video-label-dot" />
-        {t("label")}
+        <span className="tt-video-label-text">{empty ? t("label") : snapshot.current_media?.title}</span>
       </span>
-      <span id="player-status" className="tt-visually-hidden">
-        Player is {status}.
+      <span id="player-status" className="tt-visually-hidden" aria-live="polite" aria-atomic="true">
+        {announcement}
       </span>
+      {reconnecting ? (
+        <div className="tt-player-chip" role="status">
+          <Wifi size={14} aria-hidden />
+          <span>{reason === "visibility_resume" ? t("rejoiningTitle") : t("reconnectingTitle")}</span>
+          <button type="button" className="tt-link" onClick={onReconnect}>
+            {tCommon("retry")}
+          </button>
+        </div>
+      ) : null}
 
       {empty ? (
         <div className="tt-player-overlay tt-player-overlay--hero" style={heroStyle}>
@@ -271,19 +396,11 @@ export const VideoStage = memo(function VideoStage({
         </div>
       ) : null}
 
-      {!empty && showLoading && !waitingForPeers ? (
-        <div className="tt-player-overlay">
+      {!empty && presentationHeld && !waitingForPeers ? (
+        <div className="tt-player-overlay tt-player-overlay--hold" role="status">
           <div className="tt-player-overlay-inner">
             <Loader2 size={36} aria-hidden className="tt-anim-orbit" style={{ color: "var(--tt-accent)" }} />
-            <h2>
-              {connectingP2p
-                ? t("p2pConnecting")
-                : status === "starting"
-                  ? t("loading")
-                : status === "seeking"
-                  ? t("seeking")
-                  : t("joining")}
-            </h2>
+            <h2>{holdTitle}</h2>
           </div>
         </div>
       ) : null}
@@ -298,21 +415,8 @@ export const VideoStage = memo(function VideoStage({
         </div>
       ) : null}
 
-      {!empty && showReconnect ? (
-        <div className="tt-player-overlay" role="status">
-          <div className="tt-player-overlay-inner">
-            <Wifi size={28} aria-hidden style={{ color: "var(--tt-accent)" }} />
-            <h2>{t("rejoiningTitle")}</h2>
-            <p>{t("rejoiningBody")}</p>
-            <div className="tt-player-overlay-actions">
-              <Button onClick={onReconnect}>{tCommon("retry")}</Button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {!empty && showBuffering ? (
-        <div className="tt-player-overlay" role="status">
+      {!empty && heldBuffering ? (
+        <div className="tt-player-overlay tt-player-overlay--quiet" role="status">
           <div className="tt-player-overlay-inner">
             <Loader2 size={36} aria-hidden className="tt-anim-orbit" style={{ color: "var(--tt-accent)" }} />
             <h2>{t("buffering")}</h2>
@@ -321,8 +425,8 @@ export const VideoStage = memo(function VideoStage({
         </div>
       ) : null}
 
-      {!empty && showCatchingUp ? (
-        <div className="tt-player-overlay" role="status">
+      {!empty && heldCatchingUp ? (
+        <div className="tt-player-overlay tt-player-overlay--quiet" role="status">
           <div className="tt-player-overlay-inner">
             <RadioTower size={30} aria-hidden style={{ color: "var(--tt-accent)" }} />
             <h2>{t("catchingUp")}</h2>
@@ -388,11 +492,17 @@ export const VideoStage = memo(function VideoStage({
       paused &&
       !blocked &&
       !fatalMediaError &&
-      !showLoading &&
-      !showReconnect ? (
-        <div className="tt-player-overlay" role="status">
+      !presentationHeld &&
+      !reconnecting ? (
+        <div
+          className={cx(
+            "tt-player-overlay",
+            youtubeActive ? "tt-player-overlay--hold" : "tt-player-overlay--quiet",
+          )}
+          role="status"
+        >
           <div className="tt-player-overlay-inner">
-            <Pause size={30} aria-hidden style={{ color: "var(--tt-warning)" }} />
+            <Pause size={16} aria-hidden style={{ color: "var(--tt-warning)" }} />
             <h2>{t("pausedTitle")}</h2>
           </div>
         </div>
@@ -419,6 +529,13 @@ export const VideoStage = memo(function VideoStage({
           {owner
             ? t("p2pStreamingPeers", { count: localP2pState.peerCount })
             : t("p2pConnectedPeers", { count: localP2pState.peerCount })}
+        </div>
+      ) : null}
+      {ownerWatchingRemoteHost && onReselectLocalFile ? (
+        <div className="tt-p2p-health" role="status">
+          <RadioTower size={14} aria-hidden />
+          <span>{t("p2pHostElsewhereTitle")}</span>
+          <Button variant="ghost" onClick={onReselectLocalFile}>{t("chooseVideo")}</Button>
         </div>
       ) : null}
     </section>

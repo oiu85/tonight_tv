@@ -2,6 +2,8 @@
 
 import { X } from "lucide-react";
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
+
+import { useTranslations } from "@/i18n";
 import { IconButton } from "./button";
 
 type ToastTone = "neutral" | "danger";
@@ -12,6 +14,7 @@ const ToastContext = createContext<ToastApi | null>(null);
 const TOAST_DURATION_MS = 3600;
 
 export function ToastProvider({ children }: { children: ReactNode }) {
+  const tCommon = useTranslations("common");
   const [toasts, setToasts] = useState<Toast[]>([]);
   const counter = useRef(0);
 
@@ -40,7 +43,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             <IconButton
               variant="ghost"
               size="sm"
-              label="Dismiss notification"
+              label={tCommon("dismiss")}
               onClick={() => setToasts((current) => current.filter((item) => item.id !== toast.id))}
             >
               <X size={16} />

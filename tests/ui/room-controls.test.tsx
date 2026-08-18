@@ -105,6 +105,7 @@ const videoStageCommon = {
     uploadSpeed: 0,
     downloadSpeed: 0,
     progress: 0,
+    hosting: false,
     error: null,
   },
 };
@@ -178,6 +179,86 @@ describe("Room playback surfaces", () => {
     expect(markup).toContain("tt-youtube-mount");
     expect(markup).not.toMatch(/tt-youtube-mount[^>]*\shidden/);
     expect(markup).not.toContain("tt-youtube-mount tt-media-layer--inactive");
+    expect(markup).toMatch(/<video[^>]*tt-media-layer--inactive/);
+    expect(markup).toContain("tt-webtor-mount tt-media-layer--inactive");
+  });
+
+  it("keeps local P2P and direct video above unused YouTube and Webtor mounts", () => {
+    const localSnapshot: RoomSnapshot = {
+      ...snapshot(false),
+      current_media: {
+        ...snapshot(false).current_media!,
+        source_type: "local_p2p",
+        source_url: null,
+        title: "Device stream",
+      },
+    };
+    const p2pMarkup = renderToStaticMarkup(
+      <I18nHarness>
+        <VideoStage
+          stageRef={createRef<HTMLElement>()}
+          videoRef={createRef<HTMLVideoElement>()}
+          youtubeMountRef={createRef<HTMLDivElement>()}
+          snapshot={localSnapshot}
+          status="live"
+          mediaError={null}
+          {...videoStageCommon}
+        />
+      </I18nHarness>,
+    );
+    const mp4Markup = renderToStaticMarkup(
+      <I18nHarness>
+        <VideoStage
+          stageRef={createRef<HTMLElement>()}
+          videoRef={createRef<HTMLVideoElement>()}
+          youtubeMountRef={createRef<HTMLDivElement>()}
+          snapshot={snapshot(false)}
+          status="live"
+          mediaError={null}
+          {...videoStageCommon}
+        />
+      </I18nHarness>,
+    );
+
+    for (const markup of [p2pMarkup, mp4Markup]) {
+      expect(markup).toContain("tt-youtube-mount tt-media-layer--inactive");
+      expect(markup).toContain("tt-webtor-mount tt-media-layer--inactive");
+      expect(markup).not.toMatch(/<video[^>]*tt-media-layer--inactive/);
+      expect(markup).not.toContain("tt-video-stage--held");
+      expect(markup).not.toContain("tt-player-overlay--hold");
+      expect(markup).not.toContain("tt-youtube-click-shield");
+    }
+  });
+
+  it("keeps the Webtor mount in front for torrent playback", () => {
+    const torrentSnapshot: RoomSnapshot = {
+      ...snapshot(false),
+      current_media: {
+        ...snapshot(false).current_media!,
+        source_type: "torrent",
+        source_url: null,
+        torrent_magnet_uri: "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567",
+      },
+    };
+    const markup = renderToStaticMarkup(
+      <I18nHarness>
+        <VideoStage
+          stageRef={createRef<HTMLElement>()}
+          videoRef={createRef<HTMLVideoElement>()}
+          youtubeMountRef={createRef<HTMLDivElement>()}
+          webtorMountRef={createRef<HTMLDivElement>()}
+          snapshot={torrentSnapshot}
+          status="live"
+          mediaError={null}
+          {...videoStageCommon}
+        />
+      </I18nHarness>,
+    );
+
+    expect(markup).toContain("tt-webtor-mount");
+    expect(markup).not.toContain("tt-webtor-mount tt-media-layer--inactive");
+    expect(markup).toMatch(/<video[^>]*tt-media-layer--inactive/);
+    expect(markup).toContain("tt-youtube-mount tt-media-layer--inactive");
   });
 
   it("shows a useful waiting state for a local P2P viewer without shared controls", () => {
@@ -229,7 +310,7 @@ describe("Room playback surfaces", () => {
     expect(markup).not.toContain("Shared room timeline");
     expect(markup).not.toMatch(/aria-label="Play for everyone"/);
     expect(markup).not.toMatch(/aria-label="Pause for everyone"/);
-    expect(markup).toContain("GO LIVE");
+    expect(markup).toContain("Catch up");
   });
 
   it("renders exactly one owner-authorized shared timeline", () => {

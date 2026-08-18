@@ -8,8 +8,8 @@ import { getBrowserAuthService } from "@/lib/auth/auth-service";
 import { IconButton } from "@/components/primitives";
 import { avatarInitials, avatarToneClass } from "@/lib/room/avatars";
 import { Brand } from "@/components/app/brand";
-import { HelpLauncher } from "@/components/app/help";
 import { LocaleSwitcher, useTranslations } from "@/i18n";
+import { ThemeSwitcher } from "@/theme";
 
 export function AdminHeader({
   accountName,
@@ -46,10 +46,10 @@ export function AdminHeader({
             </span>
           ) : null}
         </div>
+        <ThemeSwitcher />
         <LocaleSwitcher variant="compact" />
-        <HelpLauncher topic="admin" label={t("help")} />
         <IconButton variant="ghost" label={t("signOut")} onClick={() => void signOut()}>
-          <LogOut size={18} aria-hidden className="tt-icon-mirror" />
+          <LogOut size={15} aria-hidden className="tt-icon-mirror" />
         </IconButton>
       </div>
     </header>

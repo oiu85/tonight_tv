@@ -9,7 +9,7 @@ import {
   getBrowserLocalP2pSourceService,
   type LocalP2pSourceService,
 } from "../p2p/local-p2p-source-service";
-import { LocalP2pError } from "../p2p/local-p2p-contracts";
+import { LocalP2pError, type LocalP2pDescriptor } from "../p2p/local-p2p-contracts";
 import {
   classifyPlayRejection,
   MediaRuntimeError,
@@ -17,6 +17,7 @@ import {
 import type { HtmlMediaAdapterEvents, PlaybackPermission } from "./html-media-adapter";
 
 const HAVE_METADATA = 1;
+const TRANSIENT_ATTACH_LIMIT = 4;
 
 export type LocalP2pMediaPlayerAdapter = PlayerSyncAdapter & Readonly<{
   startWatching: () => Promise<void>;
@@ -39,20 +40,22 @@ type Options = Readonly<{
   sourceService?: LocalP2pSourceService;
 }>;
 
-function mapP2pError(cause: unknown): MediaRuntimeError {
+function mapP2pError(cause: unknown, fatal = true): MediaRuntimeError {
   if (cause instanceof MediaRuntimeError) return cause;
   if (cause instanceof LocalP2pError) {
     const category = cause.code === "p2p_unsupported" || cause.code === "p2p_service_worker_unavailable"
       ? "p2p_unsupported"
       : cause.code === "p2p_invalid_file"
         ? "p2p_file_required"
-        : "p2p_stream_failed";
-    return new MediaRuntimeError(category, cause.message, { cause });
+        : cause.code === "p2p_join_failed"
+          ? "p2p_host_unavailable"
+          : "p2p_stream_failed";
+    return new MediaRuntimeError(category, cause.message, { cause, fatal });
   }
   return new MediaRuntimeError(
     "p2p_stream_failed",
     "The device stream could not be prepared in this browser.",
-    { cause },
+    { cause, fatal },
   );
 }
 
@@ -68,14 +71,18 @@ export function createLocalP2pMediaPlayerAdapter(
     resolve: () => void;
     reject: (error: MediaRuntimeError) => void;
   }>>();
+  const seekWaiters = new Set<() => void>();
 
   let mediaId: string | null = null;
   let infoHash: string | null = null;
+  let descriptor: LocalP2pDescriptor | null = null;
   let ready = false;
   let destroyed = false;
   let generation = 0;
   let playbackPermission: PlaybackPermission = "unknown";
   let lastError: MediaRuntimeError | null = null;
+  let attachAttempts = 0;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
   function listen(name: string, listener: EventListener): void {
     media.addEventListener(name, listener);
@@ -84,6 +91,7 @@ export function createLocalP2pMediaPlayerAdapter(
 
   function settleReady(): void {
     if (!ready || destroyed) return;
+    lastError = null;
     for (const waiter of readyWaiters) waiter.resolve();
     readyWaiters.clear();
     events.onDurationChange?.(Number.isFinite(media.duration) ? media.duration : null);
@@ -92,14 +100,33 @@ export function createLocalP2pMediaPlayerAdapter(
 
   function report(error: MediaRuntimeError): void {
     lastError = error;
-    for (const waiter of readyWaiters) waiter.reject(error);
-    readyWaiters.clear();
+    if (error.fatal) {
+      for (const waiter of readyWaiters) waiter.reject(error);
+      readyWaiters.clear();
+    }
     events.onError?.(error);
   }
 
   function rejectReadyWaiters(error: MediaRuntimeError): void {
     for (const waiter of readyWaiters) waiter.reject(error);
     readyWaiters.clear();
+  }
+
+  function settleSeekWaiters(): void {
+    for (const resolve of seekWaiters) resolve();
+    seekWaiters.clear();
+  }
+
+  function clearRetryTimer(): void {
+    if (retryTimer === null) return;
+    clearTimeout(retryTimer);
+    retryTimer = null;
+  }
+
+  function isStillDownloading(): boolean {
+    const state = runtime.getState();
+    if (!state || state.hosting) return false;
+    return state.status === "connecting" || state.status === "no_peers" || state.status === "buffering" || state.progress < 0.05;
   }
 
   listen("loadedmetadata", () => {
@@ -119,26 +146,54 @@ export function createLocalP2pMediaPlayerAdapter(
   listen("stalled", () => events.onBufferingChange?.(true));
   listen("progress", () => events.onProgress?.());
   listen("timeupdate", () => events.onProgress?.());
-  listen("seeked", () => events.onProgress?.());
+  listen("seeked", () => {
+    settleSeekWaiters();
+    events.onProgress?.();
+  });
   listen("ended", () => void events.onEnded?.());
-  listen("error", () => report(new MediaRuntimeError(
-    "p2p_stream_failed",
-    "The browser could not play the device stream.",
-  )));
+  listen("error", () => {
+    if (destroyed || !descriptor) return;
+    if (isStillDownloading() && attachAttempts < TRANSIENT_ATTACH_LIMIT) {
+      attachAttempts += 1;
+      events.onBufferingChange?.(true);
+      report(new MediaRuntimeError(
+        "p2p_stream_failed",
+        "The device stream is still opening. Waiting for more data from the host.",
+        { fatal: false },
+      ));
+      clearRetryTimer();
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        if (destroyed || !descriptor) return;
+        void runtime.attachToMediaElement(descriptor, media).catch((cause) => {
+          report(mapP2pError(cause, false));
+        });
+      }, 1_200 * attachAttempts);
+      return;
+    }
+    report(new MediaRuntimeError(
+      "p2p_stream_failed",
+      "The browser could not play the device stream.",
+    ));
+  });
 
   async function clearSource(): Promise<void> {
     generation += 1;
+    clearRetryTimer();
+    attachAttempts = 0;
     rejectReadyWaiters(new MediaRuntimeError(
       "p2p_stream_failed",
       "The device stream was replaced before it became ready.",
       { fatal: false },
     ));
     ready = false;
+    settleSeekWaiters();
+    const previousHash = infoHash;
+    infoHash = null;
+    descriptor = null;
     media.pause();
     media.removeAttribute("src");
     media.load();
-    const previousHash = infoHash;
-    infoHash = null;
     if (previousHash && !runtime.hasLocalSeed(previousHash)) {
       await runtime.leaveLocalStream(previousHash).catch(() => undefined);
     }
@@ -162,17 +217,12 @@ export function createLocalP2pMediaPlayerAdapter(
 
     const loadGeneration = generation;
     try {
-      const descriptor = await sourceService.resolveSource(options.roomId, next.id);
-      if (options.isOwner && !runtime.hasLocalSeed(descriptor.infoHash)) {
-        throw new MediaRuntimeError(
-          "p2p_file_required",
-          "Choose the original file again to resume hosting this device stream.",
-        );
-      }
-      infoHash = descriptor.infoHash;
-      await runtime.attachToMediaElement(descriptor, media);
+      const resolved = await sourceService.resolveSource(options.roomId, next.id);
       if (destroyed || loadGeneration !== generation) return;
-      media.load();
+      descriptor = resolved;
+      infoHash = resolved.infoHash;
+      await runtime.attachToMediaElement(resolved, media);
+      if (destroyed || loadGeneration !== generation) return;
       ready = media.readyState >= HAVE_METADATA;
       settleReady();
     } catch (cause) {
@@ -200,6 +250,7 @@ export function createLocalP2pMediaPlayerAdapter(
   function destroy(): void {
     if (destroyed) return;
     destroyed = true;
+    clearRetryTimer();
     void clearSource();
     for (const [name, listener] of listeners) media.removeEventListener(name, listener);
     listeners.clear();
@@ -227,7 +278,30 @@ export function createLocalP2pMediaPlayerAdapter(
     isPaused: () => media.paused,
     getCurrentTime: () => media.currentTime,
     getDuration: () => Number.isFinite(media.duration) ? media.duration : null,
-    seek: (position: number) => { media.currentTime = Math.max(0, position); },
+    seek: async (position: number) => {
+      if (!Number.isFinite(position) || Math.abs(media.currentTime - position) < 0.01) {
+        return;
+      }
+      media.pause();
+      media.currentTime = Math.max(0, position);
+      if (!media.seeking) {
+        return;
+      }
+      await new Promise<void>((resolve) => {
+        let settled = false;
+        const finish = () => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          clearTimeout(timeoutId);
+          seekWaiters.delete(finish);
+          resolve();
+        };
+        const timeoutId = setTimeout(finish, 8_000);
+        seekWaiters.add(finish);
+      });
+    },
     play,
     pause: () => media.pause(),
     getPlaybackRate: () => media.playbackRate,

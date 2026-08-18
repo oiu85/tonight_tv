@@ -15,6 +15,7 @@ import { Button, ProgressMeter } from "@/components/primitives";
 import { useTranslations } from "@/i18n";
 import type { RoomSnapshot } from "@/lib/rooms/room-service";
 import type { RoomSyncStatus } from "@/lib/sync/room-sync-coordinator";
+import { usePlayerClock } from "../hooks/use-room-session";
 import { formatPlaybackTime } from "./playback-helpers";
 import { LocalControls, type LocalControlsProps } from "./local-controls";
 
@@ -24,8 +25,8 @@ export const AdminControls = memo(function AdminControls(
   props: LocalControlsProps & {
     status: RoomSyncStatus;
     playbackStatus: RoomSnapshot["playback"]["status"];
-    currentTime: number;
-    duration: number | null;
+    currentTime?: number;
+    duration?: number | null;
     pending: PendingCommand;
     playbackVersion: number;
     onPlayPause: () => void;
@@ -39,8 +40,11 @@ export const AdminControls = memo(function AdminControls(
 ) {
   const t = useTranslations("room.controls");
   const tSync = useTranslations("sync");
+  const clock = usePlayerClock();
+  const currentTime = props.currentTime ?? clock.canonicalTime;
+  const duration = props.duration ?? clock.duration;
   const playback = props.playbackStatus;
-  const max = props.duration ?? 0;
+  const max = duration ?? 0;
   // Seeking is only meaningful while we're live. Other sync states mean
   // the timeline is moving on its own; we shouldn't push extra commands.
   const seekEnabled = props.status === "live";
@@ -106,9 +110,9 @@ export const AdminControls = memo(function AdminControls(
           aria-label={playback === "playing" ? t("pauseForEveryone") : t("playForEveryone")}
         >
           {playback === "playing" ? (
-            <Pause size={20} aria-hidden />
+            <Pause size={16} aria-hidden />
           ) : (
-            <Play size={20} aria-hidden />
+            <Play size={16} aria-hidden />
           )}
           <span>{playback === "playing" ? t("pause") : t("play")}</span>
         </button>
@@ -120,7 +124,7 @@ export const AdminControls = memo(function AdminControls(
           disabled={props.pending === "restart"}
           aria-label={t("restartForEveryone")}
         >
-          <RotateCcw size={18} aria-hidden className="tt-icon-mirror" />
+          <RotateCcw size={15} aria-hidden />
           <span>{t("restart")}</span>
         </Button>
 
@@ -131,12 +135,12 @@ export const AdminControls = memo(function AdminControls(
           disabled={props.pending === "next"}
           aria-label={t("playNext")}
         >
-          <SkipForward size={18} aria-hidden />
+          <SkipForward size={15} aria-hidden className="tt-icon-mirror" />
           <span>{t("next")}</span>
         </Button>
 
         <Button variant="secondary" className="tt-control-large-button" onClick={props.onAddMedia}>
-          <Plus size={18} aria-hidden />
+          <Plus size={15} aria-hidden />
           <span>{t("addMedia")}</span>
         </Button>
 
@@ -147,27 +151,27 @@ export const AdminControls = memo(function AdminControls(
           disabled={!props.subtitlesAvailable}
           aria-label={t("manageSubtitles")}
         >
-          <Captions size={18} aria-hidden />
+          <Captions size={15} aria-hidden />
           <span>{t("subtitles")}</span>
         </Button>
       </div>
 
       <div className="tt-timeline" aria-label={t("scrubTimeline")}>
-        <time className="tt-num">{formatPlaybackTime(draft ?? props.currentTime)}</time>
+        <time className="tt-num" dir="ltr">{formatPlaybackTime(draft ?? currentTime)}</time>
         <input
           className="tt-range"
           type="range"
           min={0}
           max={Math.max(max, 0.001)}
           step={0.1}
-          value={draft ?? props.currentTime}
+          value={draft ?? currentTime}
           onChange={(event) => updateSeekPreview(Number(event.target.value))}
           onPointerUp={commitSeek}
           onKeyUp={commitSeek}
           disabled={max <= 0}
           aria-label={t("seekAria")}
         />
-        <time className="tt-num">{props.duration !== null ? formatPlaybackTime(max) : "--:--"}</time>
+        <time className="tt-num" dir="ltr">{duration !== null ? formatPlaybackTime(max) : "--:--"}</time>
       </div>
 
       {props.status === "catching_up" || props.status === "buffering" ? (

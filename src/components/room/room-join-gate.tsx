@@ -18,7 +18,7 @@ import { type CSSProperties, type FormEvent, useCallback, useId, useState } from
 
 import type { RoomJoinPreview } from "@/lib/rooms/room-service";
 import { posterForTitle } from "@/lib/room/posters";
-import { useLocale, useTranslations } from "@/i18n";
+import { useTranslations } from "@/i18n";
 import { Brand } from "../app/brand";
 import { Button, Field, Input, LoadingBlock, StatusBadge, useToast } from "@/components/primitives";
 
@@ -52,7 +52,6 @@ export function RoomJoinGate({
   const toast = useToast();
   const t = useTranslations("room.join");
   const tCommon = useTranslations("common");
-  const { direction } = useLocale();
   const inputId = useId();
   const [nickname, setNickname] = useState(initialNickname ?? "");
   const goHome = useCallback(() => router.push("/"), [router]);
@@ -63,14 +62,6 @@ export function RoomJoinGate({
   const heroStyle = preview?.current_title
     ? ({ ["--tt-hero-url" as string]: `url(${heroUrl})` } as CSSProperties)
     : undefined;
-  const inputIconStyle: CSSProperties = {
-    position: "absolute",
-    top: "50%",
-    transform: "translateY(-50%)",
-    color: "var(--tt-text-muted)",
-    ...(direction === "rtl" ? { right: 14, left: "auto" } : { left: 14, right: "auto" }),
-  };
-  const inputPadding = direction === "rtl" ? { paddingRight: 38 } : { paddingLeft: 38 };
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -140,8 +131,8 @@ export function RoomJoinGate({
           {!isJoining ? (
             <form className="tt-form" onSubmit={submit} noValidate>
               <Field label={t("label")} htmlFor={inputId} help={t("labelHelp")}>
-                <div style={{ position: "relative" }}>
-                  <User size={15} aria-hidden style={inputIconStyle} />
+                <div className="tt-input-icon-wrap">
+                  <User size={15} aria-hidden className="tt-input-icon" />
                   <Input
                     id={inputId}
                     autoComplete="nickname"
@@ -149,7 +140,6 @@ export function RoomJoinGate({
                     value={nickname}
                     onChange={(event) => setNickname(event.target.value)}
                     placeholder={t("placeholder")}
-                    style={inputPadding}
                     aria-describedby={error ? `${inputId}-err` : undefined}
                     required
                   />
@@ -211,7 +201,7 @@ export function RoomJoinGate({
           style={{ marginInlineStart: 12, background: "transparent", border: 0, cursor: "pointer" }}
           onClick={goHome}
         >
-          <Link2 size={12} aria-hidden style={{ verticalAlign: -1, marginInlineEnd: 4 }} className="tt-icon-mirror" /> {tCommon("back")}
+          <Link2 size={12} aria-hidden style={{ verticalAlign: -1, marginInlineEnd: 4 }} /> {tCommon("back")}
         </button>
       </div>
     </main>

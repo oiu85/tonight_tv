@@ -13,7 +13,8 @@ declare module "@webtor/embed-sdk-js" {
   }>;
 
   export type WebtorEmbedConfig = Readonly<Record<string, unknown>> & {
-    el: HTMLElement;
+    id?: string;
+    el?: HTMLElement;
     magnet: string;
     path?: string;
     baseUrl?: string;

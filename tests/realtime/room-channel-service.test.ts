@@ -22,6 +22,7 @@ type EventCallback = (payload: unknown) => void;
 
 class ChannelMock {
   readonly handlers = new Map<string, EventCallback[]>();
+  readonly send = vi.fn().mockResolvedValue("ok");
   readonly track = vi.fn().mockResolvedValue("ok");
   readonly untrack = vi.fn().mockResolvedValue("ok");
   private subscribeCallback: SubscribeCallback | null = null;
@@ -220,7 +221,7 @@ describe("room channel lifecycle", () => {
 
     expect(setAuth).toHaveBeenCalledOnce();
     expect(createChannel).toHaveBeenCalledWith(`room:${roomId}`, {
-      config: { private: true, presence: { enabled: true } },
+      config: { private: true, broadcast: { ack: false, self: false }, presence: { enabled: true } },
     });
     expect(channel.track).toHaveBeenCalledOnce();
     expect(channel.track).toHaveBeenCalledWith({
@@ -239,9 +240,11 @@ describe("room channel lifecycle", () => {
     const options = createOptions(handlers);
 
     await connectSubscribed(service, channel, options);
-    await service.connect({ ...options, handlers: createHandlers() });
+    const reusedHandlers = createHandlers();
+    await service.connect({ ...options, handlers: reusedHandlers });
 
     expect(createChannel).toHaveBeenCalledOnce();
+    expect(reusedHandlers.onStatusChanged).toHaveBeenCalledWith("subscribed", null);
     expect(channel.handlers.get("broadcast:playback_state_changed")).toHaveLength(1);
     expect(channel.handlers.get("broadcast:chat_message_created")).toHaveLength(1);
 
@@ -376,6 +379,38 @@ describe("room channel lifecycle", () => {
     expect(service.getStatus()).toBe("subscribed");
   });
 
+  it("queues a follow-up reconciliation while one is already in flight", async () => {
+    const { client, channel } = createClientMock();
+    let releaseFirst: () => void = () => undefined;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let started = 0;
+    const onReconcile = vi.fn(async () => {
+      started += 1;
+      if (started === 1) {
+        await firstGate;
+      }
+    });
+    const handlers = createHandlers({ onReconcile });
+    const service = createRoomChannelService(client);
+
+    await connectSubscribed(service, channel, createOptions(handlers));
+    channel.emitSubscribe("CHANNEL_ERROR", new Error("socket dropped"));
+    channel.emitSubscribe("SUBSCRIBED");
+    await vi.waitFor(() => expect(onReconcile).toHaveBeenCalledTimes(1));
+
+    channel.emit("broadcast", "queue_changed", { payload: { room_id: "not-a-uuid" } });
+    await Promise.resolve();
+    expect(onReconcile).toHaveBeenCalledTimes(1);
+
+    releaseFirst();
+    await vi.waitFor(() => expect(onReconcile).toHaveBeenCalledTimes(2));
+    expect(onReconcile).toHaveBeenNthCalledWith(1, "reconnected");
+    expect(onReconcile).toHaveBeenNthCalledWith(2, "malformed_event");
+    expect(service.getStatus()).toBe("subscribed");
+  });
+
   it("surfaces an initial authorization/subscription failure", async () => {
     const { client, channel } = createClientMock();
     const service = createRoomChannelService(client);
@@ -418,5 +453,24 @@ describe("room channel lifecycle", () => {
     expect(onWatchersChanged).toHaveBeenCalledWith([
       expect.objectContaining({ user_id: userId }),
     ]);
+  });
+
+  it("relays device-stream signaling over the existing private room channel", async () => {
+    const { client, channel } = createClientMock();
+    const service = createRoomChannelService(client);
+    await connectSubscribed(service, channel, createOptions(createHandlers()));
+    const received = vi.fn();
+    const stop = service.subscribeP2pSignal(received);
+
+    await service.sendP2pSignal({ kind: "hello", infoHash: "abc", from: sessionId });
+    expect(channel.send).toHaveBeenCalledWith({
+      type: "broadcast",
+      event: "p2p_signal",
+      payload: { kind: "hello", infoHash: "abc", from: sessionId },
+    });
+
+    channel.emit("broadcast", "p2p_signal", { payload: { kind: "signal", from: "other" } });
+    expect(received).toHaveBeenCalledWith({ kind: "signal", from: "other" });
+    stop();
   });
 });

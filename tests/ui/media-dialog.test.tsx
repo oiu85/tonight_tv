@@ -40,6 +40,7 @@ describe("Stream from Device media dialog", () => {
             uploadSpeed: 0,
             downloadSpeed: 0,
             progress: 0,
+            hosting: false,
             error: null,
           }}
           onSubmit={onSubmit}
@@ -64,5 +65,62 @@ describe("Stream from Device media dialog", () => {
       expect(onSubmitLocalP2p).toHaveBeenCalledWith("Local fixture", file, false);
     });
     expect(onSubmit).not.toHaveBeenCalled();
+  });
+});
+
+describe("Torrent media dialog", () => {
+  it("adds a magnet or webtor.io link without waiting on Inspect", async () => {
+    const onSubmit = vi.fn(async () => undefined);
+    const view = render(
+      <I18nHarness>
+        <MediaDialog
+          open
+          onOpenChange={vi.fn()}
+          roomId="11111111-1111-4111-8111-111111111111"
+          item={null}
+          submitting={false}
+          error={null}
+          localP2pState={{
+            status: "idle",
+            infoHash: null,
+            peerCount: 0,
+            uploadSpeed: 0,
+            downloadSpeed: 0,
+            progress: 0,
+            hosting: false,
+            error: null,
+          }}
+          onSubmit={onSubmit}
+          onSubmitLocalP2p={vi.fn()}
+        />
+      </I18nHarness>,
+    );
+
+    fireEvent.change(view.getByLabelText("Source Type"), { target: { value: "torrent" } });
+    fireEvent.change(view.getByLabelText("Title"), { target: { value: "Batman Begins" } });
+    fireEvent.change(view.getByPlaceholderText("magnet:?xt=urn:btih:... or https://webtor.io/infohash"), {
+      target: { value: "https://webtor.io/52fd58172c296021f2e351b8a12bbc8be7c88f8d" },
+    });
+
+    const add = view.getByRole("button", { name: "Add to Queue" });
+    expect((add as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(add);
+
+    await waitFor(() => {
+      expect(onSubmit).toHaveBeenCalledOnce();
+    });
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Batman Begins",
+        sourceType: "torrent",
+        torrent: expect.objectContaining({
+          infoHash: "52fd58172c296021f2e351b8a12bbc8be7c88f8d",
+          filePath: "__webtor_autoselect__.mp4",
+          fileSize: 0,
+        }),
+      }),
+      false,
+      [],
+    );
   });
 });

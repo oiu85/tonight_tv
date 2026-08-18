@@ -7,6 +7,15 @@ import type { RoomSnapshot } from "@/lib/rooms/room-service";
 import type { RoomSyncStatus } from "@/lib/sync/room-sync-coordinator";
 import { getNumberLocale, type Locale } from "@/i18n";
 
+/** True while the local player is still catching a pause, seek, or new source. */
+export function isPlaybackPresentationHeld(status: RoomSyncStatus): boolean {
+  return (
+    status === "starting" ||
+    status === "aligning" ||
+    status === "seeking"
+  );
+}
+
 export function formatPlaybackTime(seconds: number | null | undefined): string {
   if (seconds === null || seconds === undefined || !Number.isFinite(seconds) || seconds < 0) {
     return "--:--";

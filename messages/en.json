@@ -29,7 +29,8 @@
     "less": "Less",
     "showLess": "Show less",
     "showMore": "Show more",
-    "openGuide": "Open the Tonight TV guide"
+    "openGuide": "Open the Tonight TV guide",
+    "dismiss": "Dismiss"
   },
   "entry": {
     "metaTitle": "Tonight TV — Watch together in sync",
@@ -39,12 +40,30 @@
     "heroSubtitle": "Watch together. In sync. Every night.",
     "heroDescription": "A private watch-room for you and your friends. One timeline. Everyone together. The link is the invite — no accounts, no ads, no algorithms.",
     "featurePills": {
-      "liveSync": { "title": "Live Sync", "body": "Always together" },
-      "private": { "title": "Private", "body": "Invite only" },
-      "chat": { "title": "Chat", "body": "Side by side" },
-      "queue": { "title": "Queue", "body": "Up next built in" },
-      "subtitles": { "title": "Subtitles", "body": "Private tracks" },
-      "encrypted": { "title": "Encrypted", "body": "Realtime + RLS" }
+      "liveSync": {
+        "title": "Live Sync",
+        "body": "Always together"
+      },
+      "private": {
+        "title": "Private",
+        "body": "Invite only"
+      },
+      "chat": {
+        "title": "Chat",
+        "body": "Side by side"
+      },
+      "queue": {
+        "title": "Queue",
+        "body": "Up next built in"
+      },
+      "subtitles": {
+        "title": "Subtitles",
+        "body": "Private tracks"
+      },
+      "encrypted": {
+        "title": "Encrypted",
+        "body": "Realtime + RLS"
+      }
     },
     "openRooms": "Open Your Rooms",
     "signIn": "Sign in as Admin",
@@ -180,27 +199,30 @@
       "watchersAria": "{count} watching",
       "deactivatedBadge": "Deactivated",
       "deactivatedTitle": "This room is currently deactivated. Reactivate it from the admin workspace.",
-      "deactivatedNotice": "This room is currently deactivated. Viewers cannot join until it is reactivated."
+      "deactivatedNotice": "This room is currently deactivated. Viewers cannot join until it is reactivated.",
+      "statusAnnouncement": "{name}: {status}",
+      "ownerFallback": "Room owner"
     },
     "channelStatus": {
-      "live": "LIVE",
+      "live": "In sync",
       "connecting": "Connecting",
       "reconnecting": "Reconnecting",
       "error": "Connection issue",
       "closed": "Disconnected",
-      "idle": "Idle"
+      "idle": "Connecting"
     },
     "video": {
       "label": "Private Room",
       "ariaStage": "Tonight TV video player",
       "emptyOwnerTitle": "Nothing is playing yet.",
-      "emptyOwnerBody": "Add a direct MP4/HLS source or a YouTube Video ID to start the room.",
-      "emptyViewerTitle": "Waiting for the room owner to start something…",
-      "loading": "Loading media…",
+      "emptyOwnerBody": "Add a YouTube link, a video URL, or a file to start watching together.",
+      "emptyViewerTitle": "Waiting for the host to start something…",
+      "loading": "Loading…",
       "seeking": "Seeking…",
-      "joining": "Joining live…",
-      "rejoiningTitle": "Rejoining live…",
-      "rejoiningBody": "Your connection took a break. The room is still live.",
+      "joining": "Getting the video ready…",
+      "rejoiningTitle": "Rejoining…",
+      "rejoiningBody": "Your connection took a break. The room is still playing.",
+      "reconnectingTitle": "Reconnecting…",
       "buffering": "Buffering…",
       "bufferingBody": "Room is still live.",
       "p2pConnecting": "Connecting to host...",
@@ -208,16 +230,19 @@
       "p2pNoPeersBody": "The room keeps playing. Video will resume when the required pieces are available.",
       "p2pStreamingPeers": "Streaming to {count, plural, one {# peer} other {# peers}}",
       "p2pConnectedPeers": "Connected to {count, plural, one {# peer} other {# peers}}",
+      "p2pHostElsewhereTitle": "This tab is watching, not hosting.",
+      "p2pHostElsewhereBody": "Keep the original tab open to stream the file. Choose the video here only if you want this tab to become the host.",
       "chooseVideo": "Choose Video",
       "catchingUp": "Catching up to live…",
-      "blockedTitle": "Playback needs your permission.",
-      "blockedBody": "The room is live. Press start watching to join the moment.",
-      "startWatching": "START WATCHING",
+      "blockedTitle": "Tap to start the picture.",
+      "blockedBody": "The room is already playing. Your browser just needs a tap before video can start.",
+      "startWatching": "Start watching",
+      "returnToPlayer": "Back to video",
       "endedTitle": "Program ended.",
       "endedOwnerBody": "Restart or choose the next program.",
       "endedViewerBody": "Waiting for the next program…",
       "endedOwnerHint": "Use the controls below.",
-      "pausedTitle": "Paused by admin",
+      "pausedTitle": "Paused",
       "addMedia": "Add Media",
       "replaceSource": "Replace source",
       "retry": "Retry",
@@ -233,13 +258,13 @@
       "behind": "Behind live by {seconds}s"
     },
     "controls": {
-      "adminTitle": "Admin controls",
-      "viewerTitle": "Viewer controls",
-      "adminKicker": "Owner",
-      "viewerKicker": "Your controls",
-      "adminSubtitle": "Press play, pause, or seek — every viewer follows in sync.",
-      "viewerSubtitleLive": "Synced with the room timeline. Local settings below only affect you.",
-      "viewerSubtitleDrift": "Use GO LIVE to re-sync if the room drifts.",
+      "adminTitle": "Playback",
+      "viewerTitle": "Your settings",
+      "adminKicker": "Host",
+      "viewerKicker": "You",
+      "adminSubtitle": "Play, pause, or seek — everyone stays together.",
+      "viewerSubtitleLive": "Volume and subtitles only change this device.",
+      "viewerSubtitleDrift": "Tap Catch up if the picture falls behind.",
       "play": "Play",
       "pause": "Pause",
       "playForEveryone": "Play for everyone",
@@ -251,12 +276,12 @@
       "addMedia": "Add Media",
       "subtitles": "Subtitles",
       "manageSubtitles": "Manage subtitles",
-      "goLive": "GO LIVE",
+      "goLive": "Catch up",
       "synced": "Synced",
       "scrubTimeline": "Shared room timeline",
       "scrubConflict": "Room state changed while you were seeking. Preview reset.",
       "seekAria": "Seek to a position",
-      "localSettingsNote": "Volume, subtitles, Picture in Picture, and fullscreen are local to this device."
+      "localSettingsNote": "Volume and subtitles only change this device."
     },
     "transport": {
       "time": "{current} / {total}",
@@ -310,17 +335,17 @@
     "mediaDialog": {
       "addTitle": "Add Media",
       "editTitle": "Edit Media",
-      "description": "Add a direct source, YouTube video, Webtor Torrent, or stream a video from this device.",
+      "description": "Paste a YouTube or video link, add a torrent, or stream a file from this device.",
       "title": "Title",
       "titlePlaceholder": "Program title",
       "sourceType": "Source Type",
       "sourceTypes": {
-        "auto": "Auto",
-        "mp4": "MP4",
-        "hls": "HLS",
+        "auto": "Paste a video link",
+        "mp4": "MP4 file",
+        "hls": "Live stream (HLS)",
         "youtube": "YouTube",
         "torrent": "Torrent",
-        "localP2p": "Stream from Device"
+        "localP2p": "File from this device"
       },
       "localHelp": "Your video stays on your device. It is streamed directly to room viewers over P2P while you are hosting it.",
       "chooseVideo": "Choose Video",
@@ -335,24 +360,29 @@
         "error": "The P2P stream could not be prepared."
       },
       "torrentKind": "Torrent source",
-      "torrentKinds": { "magnet": "Magnet URI", "file": "Upload .torrent" },
+      "torrentKinds": {
+        "magnet": "Magnet URI",
+        "file": "Upload .torrent"
+      },
       "magnetLabel": "Magnet URI",
-      "magnetPlaceholder": "magnet:?xt=urn:btih:...",
+      "magnetPlaceholder": "magnet:?xt=urn:btih:... or https://webtor.io/infohash",
+      "magnetHelp": "Paste a Magnet URI, a 40-character info hash, or a webtor.io link. You can add it immediately — Webtor picks the main video.",
       "torrentFileLabel": ".torrent file",
       "torrentFileHelp": "Torrent metadata only, maximum 2 MiB.",
       "inspect": "Inspect Torrent",
       "retrieving": "Retrieving torrent metadata…",
       "ready": "Ready",
+      "autoSelectReady": "Ready. Webtor will pick the main video when playback starts.",
       "noVideoFiles": "No playable video files were found in this torrent.",
       "videoFile": "Video file",
       "noSubtitlesFound": "No subtitle files found.",
       "importSubtitles": "Import subtitles (optional)",
-      "inspectFirst": "Inspect the torrent and select one video file first.",
+      "inspectFirst": "Enter a valid Magnet URI, or inspect a .torrent file and select one video.",
       "youtubeLabel": "YouTube video",
       "youtubeHelp": "Paste a YouTube watch URL or the 11-character Video ID.",
       "youtubePlaceholder": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
       "urlLabel": "Video URL",
-      "urlHelp": "Use a direct, browser-playable MP4 or HLS (.m3u8) URL. YouTube watch links can also be pasted here with Auto selected. Protected sources and DRM streams are not resolved by Tonight TV.",
+      "urlHelp": "Paste a YouTube, MP4, or HLS (.m3u8) link. Protected or DRM sources will not play.",
       "urlPlaceholder": "https://media.example/program.mp4",
       "playImmediately": "Play immediately after adding",
       "save": "Save Changes",
@@ -443,15 +473,24 @@
       "youtubeEmbedTitle": "This YouTube video cannot be embedded.",
       "youtubeEmbedBody": "The owner disabled playback outside youtube.com. Choose another source.",
       "youtubePlayerTitle": "YouTube could not start in this browser.",
-      "youtubePlayerBody": "Refresh the room, then try the video again."
+      "youtubePlayerBody": "Refresh the room, then try the video again.",
+      "visibilityResumeFailed": "Tonight TV could not restore playback after returning to this tab."
+    },
+    "liveRegion": {
+      "permissionNeeded": "Tap start watching to hear the room.",
+      "rejoining": "Reconnecting to the room.",
+      "buffering": "Buffering.",
+      "paused": "Paused.",
+      "synced": "In sync with the room."
     },
     "footer": {
       "roomId": "Room ID: {id}",
+      "roomIdLabel": "Room ID:",
       "privateRoom": "Private room",
-      "behind": "Behind live?",
-      "goLive": "Go live",
+      "behind": "Behind?",
+      "goLive": "Catch up",
       "orRefresh": "to catch up or refresh.",
-      "connected": "Connected",
+      "connected": "In sync",
       "reconnecting": "Reconnecting…",
       "adminPresent": "Admin present",
       "viewer": "Viewer"
@@ -469,21 +508,82 @@
       "currentlyPlaying": "Currently playing",
       "invite": "Friends are watching · Jump in and enjoy together.",
       "formKicker": "Join this room",
-      "formTitle": "Join live",
+      "formTitle": "Join the room",
       "formSubtitle": "Choose the name your friends will see.",
-      "label": "Display name",
+      "label": "Your name",
       "labelHelp": "This is how your friends will see you.",
       "placeholder": "Enter your nickname",
-      "submit": "JOIN LIVE",
+      "submit": "Join room",
       "nameLength": "Display name must contain between 1 and 40 characters.",
-      "notice": "By joining, you’ll be added to the room and can watch live.",
+      "notice": "You’ll be in the room and can watch with everyone else.",
       "lifecycle": {
-        "preparing": { "label": "Preparing room…", "body": "Fetching room information" },
-        "authenticating": { "label": "Authenticating…", "body": "Verifying your identity" },
-        "joining": { "label": "Joining room…", "body": "Creating your membership" },
-        "connecting": { "label": "Connecting…", "body": "Establishing live connection" },
-        "live": { "label": "Joining live…", "body": "Getting you in sync" }
+        "preparing": {
+          "label": "Preparing room…",
+          "body": "Fetching room information"
+        },
+        "authenticating": {
+          "label": "Getting ready…",
+          "body": "Setting up this device"
+        },
+        "joining": {
+          "label": "Joining room…",
+          "body": "Adding you to the room"
+        },
+        "connecting": {
+          "label": "Connecting…",
+          "body": "Linking you with everyone else"
+        },
+        "live": {
+          "label": "Almost there…",
+          "body": "Matching the room’s playback"
+        }
       }
+    },
+    "toasts": {
+      "stillSyncing": "The room is still synchronizing playback.",
+      "bufferingSyncFailed": "Playback resumed, but this browser is still catching up to the room.",
+      "driftFailed": "This browser could not stay aligned with the room timeline.",
+      "syncAfterLoadFailed": "Media loaded, but this browser is still synchronizing playback.",
+      "markEndedFailed": "The room could not mark this media as ended.",
+      "onlineStillSyncing": "You are back online. The room is still synchronizing.",
+      "commandSavedStillSyncing": "The playback command was saved, but this browser is still synchronizing the player.",
+      "pausedEveryone": "Paused for everyone",
+      "playingEveryone": "Playing for everyone",
+      "restartedEveryone": "Restarted for everyone",
+      "timelineUpdated": "Timeline updated",
+      "mediaUpdated": "Media updated",
+      "playingMedia": "Playing media",
+      "mediaAdded": "Media added to queue",
+      "mediaAddedSubtitlesFailed": "Media added. {count, plural, one {# subtitle could not be imported.} other {# subtitles could not be imported.}}",
+      "selectionFailed": "Media was added, but playback could not switch to it yet.",
+      "reconciliationFailed": "Media was added, but the room is still synchronizing playback.",
+      "deviceSelectionFailed": "The device stream was added, but playback could not switch to it yet.",
+      "deviceReconciliationFailed": "The device stream was added, but the room is still synchronizing playback.",
+      "devicePrepareFailed": "The device stream could not be prepared. Try another video file.",
+      "deviceStarted": "Device stream started",
+      "deviceQueued": "Device stream added to queue",
+      "deviceResumed": "Device stream resumed",
+      "deviceResumeStillSyncing": "The device stream resumed, but the room is still synchronizing playback.",
+      "deviceResumeFailed": "The selected file could not resume this device stream.",
+      "playingTitle": "Playing {title}",
+      "playingNext": "Playing next item",
+      "queueUpdated": "Queue updated",
+      "queueStillSyncing": "The queue was saved, but the room is still synchronizing.",
+      "queueReorderFailed": "The queue could not be reordered right now.",
+      "mediaRemoved": "Media removed",
+      "mediaRemovedStillSyncing": "Media was removed, but the room is still synchronizing.",
+      "subtitleLoadFailed": "Could not load subtitle",
+      "subtitleUploaded": "Subtitle uploaded",
+      "subtitleUploadedStillSyncing": "Subtitle uploaded, but the room is still synchronizing.",
+      "subtitleDeleted": "Subtitle deleted",
+      "subtitleDeletedStillSyncing": "Subtitle deleted, but the room is still synchronizing.",
+      "roomLinkCopied": "Room link copied",
+      "roomRenamed": "Room name updated",
+      "pipSourceUnavailable": "Picture in Picture is not available for this source",
+      "pipBrowserUnavailable": "Picture in Picture is not available in this browser",
+      "pipFailed": "Picture in Picture could not start",
+      "fullscreenFailed": "Fullscreen could not start",
+      "playbackStartedStillSyncing": "Playback started, but the room is still synchronizing."
     }
   },
   "help": {
@@ -506,9 +606,18 @@
           "Subtitles and chat stay inside the room and disappear when it ends."
         ],
         "steps": [
-          { "title": "Sign in as the admin", "body": "Use your admin email to land in the Your Rooms workspace." },
-          { "title": "Create a room", "body": "Give it a friendly name, then copy the share link for your friends." },
-          { "title": "Watch together", "body": "Drop a media item, press play, and enjoy the show in sync." }
+          {
+            "title": "Sign in as the admin",
+            "body": "Use your admin email to land in the Your Rooms workspace."
+          },
+          {
+            "title": "Create a room",
+            "body": "Give it a friendly name, then copy the share link for your friends."
+          },
+          {
+            "title": "Watch together",
+            "body": "Drop a media item, press play, and enjoy the show in sync."
+          }
         ]
       },
       "admin": {
@@ -520,9 +629,18 @@
         "private": "Private by design",
         "privateBody": "Only people who received the link can join. We never share or recommend rooms.",
         "steps": [
-          { "title": "Manage from the workspace", "body": "Open the action menu on any room card to rename, share, deactivate, reactivate, or delete it." },
-          { "title": "Drop media in", "body": "Inside the room, use Add Media to paste a direct URL, a YouTube ID, or a torrent." },
-          { "title": "Drive playback", "body": "Play, pause, seek, and play next are shared with every viewer the moment you press them." }
+          {
+            "title": "Manage from the workspace",
+            "body": "Open the action menu on any room card to rename, share, deactivate, reactivate, or delete it."
+          },
+          {
+            "title": "Drop media in",
+            "body": "Inside the room, use Add Media to paste a direct URL, a YouTube ID, or a torrent."
+          },
+          {
+            "title": "Drive playback",
+            "body": "Play, pause, seek, and play next are shared with every viewer the moment you press them."
+          }
         ]
       },
       "join": {
@@ -532,40 +650,113 @@
         "privacy": "Privacy reminder",
         "privacyBody": "Nicknames stay in the room. Account info never leaves your device.",
         "steps": [
-          { "title": "Open the link", "body": "The join page shows what is currently playing and the room name." },
-          { "title": "Pick a nickname", "body": "Your friends see you by this name in chat and the watcher list." },
-          { "title": "Get in sync", "body": "Tonight TV lines you up with the room timeline. Use the local volume and mute without affecting others." }
+          {
+            "title": "Open the link",
+            "body": "The join page shows what is currently playing and the room name."
+          },
+          {
+            "title": "Pick a nickname",
+            "body": "Your friends see you by this name in chat and the watcher list."
+          },
+          {
+            "title": "Get in sync",
+            "body": "Tonight TV lines you up with the room timeline. Use the local volume and mute without affecting others."
+          }
         ]
       },
       "shortcuts": {
         "title": "Keyboard shortcuts",
         "subtitle": "Move through the room quickly without taking your hands off the keyboard.",
         "items": [
-          { "keys": "Space", "label": "Play / pause", "detail": "Admins control the shared timeline; viewers see the same shortcut for local-only playback." },
-          { "keys": "←  →", "label": "Seek", "detail": "Arrow keys nudge playback by five seconds, matching the room's authoritative state." },
-          { "keys": "M", "label": "Mute yourself", "detail": "Only your local audio is muted. The room keeps playing." },
-          { "keys": "↑  ↓", "label": "Volume", "detail": "Adjust your local volume without touching the room." },
-          { "keys": "F", "label": "Fullscreen", "detail": "Toggles browser fullscreen on the video stage." },
-          { "keys": "?", "label": "Open this guide", "detail": "Available on every page of the workspace." },
-          { "keys": "Esc", "label": "Close dialogs", "detail": "Closes any open dialog, menu, or modal in the workspace." }
+          {
+            "keys": "Space",
+            "label": "Play / pause",
+            "detail": "Admins control the shared timeline; viewers see the same shortcut for local-only playback."
+          },
+          {
+            "keys": "←  →",
+            "label": "Seek",
+            "detail": "Arrow keys nudge playback by five seconds, matching the room's authoritative state."
+          },
+          {
+            "keys": "M",
+            "label": "Mute yourself",
+            "detail": "Only your local audio is muted. The room keeps playing."
+          },
+          {
+            "keys": "↑  ↓",
+            "label": "Volume",
+            "detail": "Adjust your local volume without touching the room."
+          },
+          {
+            "keys": "F",
+            "label": "Fullscreen",
+            "detail": "Toggles browser fullscreen on the video stage."
+          },
+          {
+            "keys": "?",
+            "label": "Open this guide",
+            "detail": "Available on every page of the workspace."
+          },
+          {
+            "keys": "Esc",
+            "label": "Close dialogs",
+            "detail": "Closes any open dialog, menu, or modal in the workspace."
+          }
         ]
       },
       "faq": {
         "title": "Common questions",
         "subtitle": "Quick answers about privacy, syncing, and what to do when something feels off.",
         "items": [
-          { "q": "Why is playback lagging behind the room?", "a": "A small lag (under a second) is normal while everyone stabilizes. If the gap grows beyond a few seconds, the room is reconnecting — your screen will resync on its own." },
-          { "q": "Can I reactivate a room I deactivated?", "a": "Yes. The action menu on each room card lets you deactivate and reactivate at any time. Deactivated rooms are hidden from the public preview but stay in your workspace." },
-          { "q": "What happens when I delete a room?", "a": "Deleting is permanent. The room, its media, subtitles, chat history, and any membership are removed. This is irreversible, so we ask you to confirm." },
-          { "q": "Do viewers need an account?", "a": "No. Viewers get an anonymous identity tied to the room session. They only need a nickname and the link you shared." },
-          { "q": "Can I queue multiple shows?", "a": "Yes. Use the Up Next panel to add as many items as you like. Use the move, play-now, and delete actions to keep the queue tidy." },
-          { "q": "What about subtitles?", "a": "Subtitles are private to the room. Owners can upload SRT or VTT files; viewers can opt in to whichever track they prefer." },
-          { "q": "What if the video won't play?", "a": "Tonight TV surfaces the specific reason (autoplay permission, expired URL, DRM, etc.). Replace the source and try again, or pick a different file." },
-          { "q": "How is the room timeline kept in sync?", "a": "Every command (play, pause, seek, select) goes through a single versioned state in the database. Viewers drift toward the latest version with sub-second corrections." },
-          { "q": "What if a viewer drops out and rejoins?", "a": "They will be re-synced to the current room state on rejoin. Chat history they can see is loaded up to the most recent 100 messages." },
-          { "q": "What about movies, shows, and clips?", "a": "Tonight TV is source-agnostic. Drop in a direct MP4/HLS URL, a YouTube Video ID, or a torrent and the room plays it." },
-          { "q": "Why is the link the only invite?", "a": "There are no usernames, no friend graphs, no invites. If you have the link you can join — the room is yours to share or not." },
-          { "q": "Does the room owner see everything?", "a": "Owners see chat and presence. Subtitle tracks are private to the uploader and whichever viewers opt in to load them." }
+          {
+            "q": "Why is playback lagging behind the room?",
+            "a": "A small lag (under a second) is normal while everyone stabilizes. If the gap grows beyond a few seconds, the room is reconnecting — your screen will resync on its own."
+          },
+          {
+            "q": "Can I reactivate a room I deactivated?",
+            "a": "Yes. The action menu on each room card lets you deactivate and reactivate at any time. Deactivated rooms are hidden from the public preview but stay in your workspace."
+          },
+          {
+            "q": "What happens when I delete a room?",
+            "a": "Deleting is permanent. The room, its media, subtitles, chat history, and any membership are removed. This is irreversible, so we ask you to confirm."
+          },
+          {
+            "q": "Do viewers need an account?",
+            "a": "No. Viewers get an anonymous identity tied to the room session. They only need a nickname and the link you shared."
+          },
+          {
+            "q": "Can I queue multiple shows?",
+            "a": "Yes. Use the Up Next panel to add as many items as you like. Use the move, play-now, and delete actions to keep the queue tidy."
+          },
+          {
+            "q": "What about subtitles?",
+            "a": "Subtitles are private to the room. Owners can upload SRT or VTT files; viewers can opt in to whichever track they prefer."
+          },
+          {
+            "q": "What if the video won't play?",
+            "a": "Tonight TV surfaces the specific reason (autoplay permission, expired URL, DRM, etc.). Replace the source and try again, or pick a different file."
+          },
+          {
+            "q": "How is the room timeline kept in sync?",
+            "a": "Every command (play, pause, seek, select) goes through a single versioned state in the database. Viewers drift toward the latest version with sub-second corrections."
+          },
+          {
+            "q": "What if a viewer drops out and rejoins?",
+            "a": "They will be re-synced to the current room state on rejoin. Chat history they can see is loaded up to the most recent 100 messages."
+          },
+          {
+            "q": "What about movies, shows, and clips?",
+            "a": "Tonight TV is source-agnostic. Drop in a direct MP4/HLS URL, a YouTube Video ID, or a torrent and the room plays it."
+          },
+          {
+            "q": "Why is the link the only invite?",
+            "a": "There are no usernames, no friend graphs, no invites. If you have the link you can join — the room is yours to share or not."
+          },
+          {
+            "q": "Does the room owner see everything?",
+            "a": "Owners see chat and presence. Subtitle tracks are private to the uploader and whichever viewers opt in to load them."
+          }
         ]
       }
     }
@@ -575,9 +766,15 @@
     "english": "English",
     "arabic": "العربية"
   },
+  "theme": {
+    "light": "Light",
+    "dark": "Dark",
+    "switchToLight": "Switch to light mode",
+    "switchToDark": "Switch to dark mode"
+  },
   "sync": {
     "live": "Synced with the room",
-    "behind": "Use GO LIVE to catch up",
+    "behind": "Tap Catch up to get back in time",
     "catchingUp": "Catching up to live…",
     "buffering": "Room is still live",
     "starting": "Loading media",

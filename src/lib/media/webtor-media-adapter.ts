@@ -1,17 +1,30 @@
 "use client";
 
 import type { PlayerCapabilities, PlayerSyncAdapter, SyncMedia } from "../sync/sync-core";
+import { extractInfoHashFromTorrentInput, isWebtorAutoselectPath } from "../torrent/torrent-manifest";
 import { MediaRuntimeError } from "./media-source";
 import type { HtmlMediaAdapterEvents, PlaybackPermission } from "./html-media-adapter";
 import type { WebtorEvent, WebtorGenerator, WebtorPlayer } from "@webtor/embed-sdk-js";
 
 let sdkPromise: Promise<WebtorGenerator> | null = null;
 const WEBTOR_SDK_TIMEOUT_MS = 15_000;
-const WEBTOR_READY_TIMEOUT_MS = 30_000;
+const WEBTOR_READY_TIMEOUT_MS = 60_000;
+const WEBTOR_PUBLIC_BASE_URL = "https://webtor.io";
+const WEBTOR_SDK_SRC = "https://cdn.jsdelivr.net/npm/@webtor/embed-sdk-js@0.2.19/dist/index.min.js";
+
+function asWebtorGenerator(value: unknown): WebtorGenerator | null {
+  if (!value || Array.isArray(value) || typeof value !== "object") return null;
+  if (typeof (value as WebtorGenerator).push !== "function") return null;
+  return value as WebtorGenerator;
+}
+
 export async function loadWebtorSdk(): Promise<WebtorGenerator> {
   sdkPromise ??= new Promise<WebtorGenerator>((resolve, reject) => {
-    const browserWindow = window as Window & { webtor?: WebtorGenerator };
-    if (browserWindow.webtor) { resolve(browserWindow.webtor); return; }
+    const existing = asWebtorGenerator((window as Window & { webtor?: unknown }).webtor);
+    if (existing) {
+      resolve(existing);
+      return;
+    }
     const script = document.createElement("script");
     let settled = false;
     const finish = (callback: () => void) => {
@@ -25,10 +38,15 @@ export async function loadWebtorSdk(): Promise<WebtorGenerator> {
       reject(new Error("The public Webtor SDK did not load within 15 seconds."));
     }), WEBTOR_SDK_TIMEOUT_MS);
     script.async = true;
-    script.src = "https://cdn.jsdelivr.net/npm/@webtor/embed-sdk-js@0.2.19/dist/index.min.js";
-    script.onload = () => finish(() => browserWindow.webtor
-      ? resolve(browserWindow.webtor)
-      : reject(new Error("Webtor SDK loaded without its public generator.")));
+    script.src = WEBTOR_SDK_SRC;
+    script.onload = () => finish(() => {
+      const generator = asWebtorGenerator((window as Window & { webtor?: unknown }).webtor);
+      if (generator) {
+        resolve(generator);
+        return;
+      }
+      reject(new Error("Webtor SDK loaded without its public generator."));
+    });
     script.onerror = () => finish(() => {
       script.remove();
       reject(new Error("The public Webtor SDK could not be loaded."));
@@ -44,9 +62,7 @@ export async function loadWebtorSdk(): Promise<WebtorGenerator> {
 
 const FEATURES = Object.freeze({
   header: false,
-  continue: false,
   title: false,
-  p2pProgress: false,
   playpause: false,
   timeline: false,
   currentTime: false,
@@ -55,7 +71,6 @@ const FEATURES = Object.freeze({
   fullscreen: false,
   chromecast: false,
   embed: false,
-  opensubtitles: false,
   volume: true,
   subtitles: true,
 });
@@ -83,14 +98,30 @@ function numberData(event: WebtorEvent): number | null {
 }
 
 function magnetFor(media: SyncMedia): string | null {
-  if (media.torrentMagnetUri?.startsWith("magnet:?")) return media.torrentMagnetUri;
-  return media.torrentInfoHash
-    ? `magnet:?xt=urn:btih:${encodeURIComponent(media.torrentInfoHash)}`
-    : null;
+  const stored = media.torrentMagnetUri?.trim() ?? "";
+  if (stored.toLowerCase().startsWith("magnet:?")) return stored;
+  const storedHash = extractInfoHashFromTorrentInput(stored);
+  if (storedHash) return `magnet:?xt=urn:btih:${storedHash}`;
+  const infoHash = media.torrentInfoHash?.trim().toLowerCase() ?? "";
+  if (/^[a-f0-9]{40}$/.test(infoHash)) return `magnet:?xt=urn:btih:${infoHash}`;
+  const sourceHash = extractInfoHashFromTorrentInput(media.sourceUrl ?? "");
+  return sourceHash ? `magnet:?xt=urn:btih:${sourceHash}` : null;
+}
+
+function embedPathFor(media: SyncMedia): string | undefined {
+  const path = media.torrentFilePath?.trim() ?? "";
+  if (!path || isWebtorAutoselectPath(path)) return undefined;
+  return path;
+}
+
+function webtorEventName(event: WebtorEvent): string {
+  return String(event.name ?? "").trim().toLowerCase();
 }
 
 export function createWebtorMediaPlayerAdapter(options: Options): WebtorMediaPlayerAdapter {
   const events = options.events ?? {};
+  const mountId = options.mount.id || `tt-webtor-${crypto.randomUUID()}`;
+  options.mount.id = mountId;
   let player: WebtorPlayer | null = null;
   let mediaId: string | null = null;
   let currentTime = 0;
@@ -126,15 +157,16 @@ export function createWebtorMediaPlayerAdapter(options: Options): WebtorMediaPla
 
   function handle(event: WebtorEvent, expectedGeneration: number): void {
     if (destroyed || expectedGeneration !== generation) return;
-    if (event.name === "torrent fetched") {
+    const name = webtorEventName(event);
+    if (name === "torrent fetched") {
       events.onProgress?.();
       return;
     }
-    if (event.name === "torrent error") {
+    if (name === "torrent error") {
       report(new MediaRuntimeError("network_source_unreachable", "Webtor could not fetch this Torrent.", { fatal: true, cause: event.data }));
       return;
     }
-    if (event.name === "inited") {
+    if (name === "inited") {
       player = event.player ?? player;
       ready = true;
       playbackPermission = "allowed";
@@ -147,25 +179,25 @@ export function createWebtorMediaPlayerAdapter(options: Options): WebtorMediaPla
       events.onReady?.();
       return;
     }
-    if (event.name === "current time") {
+    if (name === "current time") {
       const next = numberData(event);
       if (next !== null) currentTime = next;
       events.onProgress?.();
       return;
     }
-    if (event.name === "duration") {
+    if (name === "duration") {
       duration = numberData(event);
       events.onDurationChange?.(duration);
       return;
     }
-    if (event.name === "player status") {
+    if (name === "player status") {
       const status = String(event.data ?? "").toLowerCase();
       events.onBufferingChange?.(status.includes("buffer"));
       if (status.includes("playing")) { paused = false; events.onProgress?.(); }
       if (status.includes("pause") || status.includes("ended")) paused = true;
       return;
     }
-    if (event.name === "open") events.onProgress?.();
+    if (name === "open") events.onProgress?.();
   }
 
   async function loadMedia(media: SyncMedia | null): Promise<void> {
@@ -203,10 +235,20 @@ export function createWebtorMediaPlayerAdapter(options: Options): WebtorMediaPla
     const sdk = await loadWebtorSdk();
     if (destroyed || localGeneration !== generation) return;
     sdk.push({
-      el: options.mount,
+      // The SDK JSON-clones its config before sending it into the iframe;
+      // passing the HTMLElement (`el`) creates a circular structure. Its
+      // documented `id` form avoids that and is required for initialization.
+      id: mountId,
       magnet,
-      path: media.torrentFilePath ?? undefined,
-      baseUrl: "https://webtor.io",
+      path: embedPathFor(media),
+      mode: "video",
+      // Let Webtor initialize its player normally. Its own timeline and
+      // transport controls remain disabled through FEATURES; Tonight TV owns
+      // the visible playback chrome.
+      controls: true,
+      width: "100%",
+      height: "100%",
+      baseUrl: WEBTOR_PUBLIC_BASE_URL,
       features: FEATURES,
       on: (event) => handle(event, localGeneration),
     });
@@ -228,7 +270,7 @@ export function createWebtorMediaPlayerAdapter(options: Options): WebtorMediaPla
       readyTimer = setTimeout(() => {
         const error = new MediaRuntimeError(
           "network_source_unreachable",
-          "Webtor could not prepare this Torrent stream within 30 seconds.",
+          "Webtor could not prepare this torrent stream in time. Try Start watching again.",
           { fatal: true },
         );
         report(error);

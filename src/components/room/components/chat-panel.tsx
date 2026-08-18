@@ -51,11 +51,13 @@ const ChatMessageRow = memo(function ChatMessageRow({
             {message.sender_display_name}
             {isCurrent ? <span className="tt-visually-hidden"> {youLabel}</span> : null}
           </strong>
-          <time dateTime={message.created_at} className="tt-num">
+          <time dateTime={message.created_at} className="tt-num" dir="ltr">
             {formatTime(message.created_at, locale)}
           </time>
         </div>
-        <p>{message.body}</p>
+        <p>
+          <bdi>{message.body}</bdi>
+        </p>
       </div>
     </article>
   );
@@ -155,7 +157,7 @@ export function ChatPanel({
             disabled={!connected || !draft.trim()}
             aria-label={t("send")}
           >
-            <Send size={17} aria-hidden className="tt-icon-mirror" />
+            <Send size={17} aria-hidden />
           </Button>
         </div>
         {error ? (
