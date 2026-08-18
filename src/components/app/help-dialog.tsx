@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import { type ReactNode, useCallback, useState } from "react";
 
-import { Dialog, IconButton, cx } from "../ui/primitives";
+import { Dialog, IconButton, cx } from "@/components/primitives";
 
 export type HelpPageId = "welcome" | "admin" | "join" | "shortcuts" | "faq";
 

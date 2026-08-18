@@ -122,8 +122,8 @@ The current backend scope explicitly excludes, among other things:
 - video upload/proxy/transcoding inside Supabase or Next.js,
 - DRM bypass,
 - protected-link scraping,
-- Torrent search/indexers/browser clients (owner-supplied Magnet and `.torrent`
-  playback through the external Webtor gateway is now approved),
+- Torrent search/indexers are excluded, while the approved Webtor path and the
+  browser-only Stream from Device (`local_p2p`) WebTorrent/WebRTC path are supported.
 - custom WebSocket servers,
 - Express/Socket.IO backend,
 - Redis,
@@ -552,11 +552,14 @@ mp4
 hls
 youtube
 torrent
+local_p2p
 ```
 
 Do not add DASH, DRM-provider, or other source types without an existing requirement.
 Torrent is a source resolver only: Webtor Self-Hosted converts one selected
 torrent file to derived HTTP/HLS, while the existing player and Postgres timeline remain authoritative.
+`local_p2p` is a browser file-distribution source: the owner seeds a selected File,
+viewers join the WebRTC swarm, and Supabase stores only the room-private descriptor.
 
 #### 3. `rooms`
 
@@ -1754,6 +1757,9 @@ Support:
 auto
 mp4
 hls
+youtube
+torrent
+local_p2p
 ```
 
 For `auto`, use conservative URL/content hints available to the browser/application. Do not fetch/scrape protected pages on the server to discover hidden streams.

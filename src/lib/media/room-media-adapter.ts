@@ -16,6 +16,10 @@ import {
   createWebtorMediaPlayerAdapter,
   type WebtorMediaPlayerAdapter,
 } from "./webtor-media-adapter";
+import {
+  createLocalP2pMediaPlayerAdapter,
+  type LocalP2pMediaPlayerAdapter,
+} from "./local-p2p-media-adapter";
 
 export type RoomMediaPlayerAdapter = PlayerSyncAdapter &
   Readonly<{
@@ -35,11 +39,11 @@ export function createRoomMediaPlayerAdapter(
   youtubeMount: HTMLElement,
   webtorMount: HTMLElement,
   events: HtmlMediaAdapterEvents = {},
+  localP2pOptions?: Readonly<{ roomId: string; isOwner: boolean }>,
 ): RoomMediaPlayerAdapter {
   let currentMedia: SyncMedia | null = null;
   let activeTimelineOffsetSec = 0;
   let resolvedDurationSec: number | null = null;
-  let loadGeneration = 0;
   let recoveringTorrent = false;
 
   const html = createHtmlMediaPlayerAdapter(videoElement, {
@@ -85,7 +89,8 @@ export function createRoomMediaPlayerAdapter(
   });
   let youtube: YouTubeMediaPlayerAdapter | null = null;
   let webtor: WebtorMediaPlayerAdapter | null = null;
-  let active: HtmlMediaPlayerAdapter | YouTubeMediaPlayerAdapter | WebtorMediaPlayerAdapter = html;
+  let localP2p: LocalP2pMediaPlayerAdapter | null = null;
+  let active: HtmlMediaPlayerAdapter | YouTubeMediaPlayerAdapter | WebtorMediaPlayerAdapter | LocalP2pMediaPlayerAdapter = html;
   let volume = videoElement.volume;
   let muted = videoElement.muted;
   let destroyed = false;
@@ -120,6 +125,26 @@ export function createRoomMediaPlayerAdapter(
     webtorMount.replaceChildren();
   }
 
+  function createLocalP2p(): LocalP2pMediaPlayerAdapter {
+    if (!localP2pOptions) {
+      throw new MediaRuntimeError("p2p_stream_failed", "The room is missing its device-stream context.");
+    }
+    const adapter = createLocalP2pMediaPlayerAdapter({
+      mediaElement: videoElement,
+      roomId: localP2pOptions.roomId,
+      isOwner: localP2pOptions.isOwner,
+      events,
+    });
+    adapter.setVolume(volume);
+    adapter.setMuted(muted);
+    return adapter;
+  }
+
+  function destroyLocalP2p(): void {
+    localP2p?.destroy();
+    localP2p = null;
+  }
+
   async function loadMedia(media: SyncMedia | null): Promise<void> {
     if (destroyed) {
       throw new MediaRuntimeError(
@@ -128,12 +153,12 @@ export function createRoomMediaPlayerAdapter(
       );
     }
 
-    const generation = ++loadGeneration;
     currentMedia = media;
     activeTimelineOffsetSec = 0;
     resolvedDurationSec = null;
 
     if (media?.sourceType === "youtube") {
+      destroyLocalP2p();
       await html.loadMedia(null);
       destroyWebtor();
       youtube ??= createYouTube();
@@ -143,6 +168,7 @@ export function createRoomMediaPlayerAdapter(
     }
 
     if (media?.sourceType === "torrent") {
+      destroyLocalP2p();
       destroyYouTube();
       webtor ??= createWebtor();
       active = webtor;
@@ -151,6 +177,17 @@ export function createRoomMediaPlayerAdapter(
       return;
     }
 
+    if (media?.sourceType === "local_p2p") {
+      destroyYouTube();
+      destroyWebtor();
+      await html.loadMedia(null);
+      localP2p ??= createLocalP2p();
+      active = localP2p;
+      await localP2p.loadMedia(media);
+      return;
+    }
+
+    destroyLocalP2p();
     destroyWebtor();
     if (youtube) {
       destroyYouTube();
@@ -163,20 +200,22 @@ export function createRoomMediaPlayerAdapter(
     volume = Math.min(1, Math.max(0, nextVolume));
     html.setVolume(volume);
     youtube?.setVolume(volume);
+    localP2p?.setVolume(volume);
   }
 
   function setMuted(nextMuted: boolean): void {
     muted = nextMuted;
     html.setMuted(muted);
     youtube?.setMuted(muted);
+    localP2p?.setMuted(muted);
   }
 
   function destroy(): void {
     if (destroyed) return;
     destroyed = true;
-    loadGeneration += 1;
     destroyYouTube();
     destroyWebtor();
+    destroyLocalP2p();
     html.destroy();
   }
 

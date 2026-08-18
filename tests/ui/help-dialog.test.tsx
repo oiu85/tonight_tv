@@ -2,15 +2,18 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { HelpDialog } from "../../src/components/app/help-dialog";
-import { ToastProvider, TooltipProvider } from "../../src/components/ui/primitives";
+import { ToastProvider, TooltipProvider } from "../../src/components/primitives";
+import { I18nHarness } from "../setup-i18n";
 
 function renderHelp(initialPage: Parameters<typeof HelpDialog>[0]["initialPage"] = "welcome"): string {
   return renderToStaticMarkup(
-    <ToastProvider>
-      <TooltipProvider>
-        <HelpDialog open onOpenChange={() => undefined} initialPage={initialPage} />
-      </TooltipProvider>
-    </ToastProvider>,
+    <I18nHarness>
+      <ToastProvider>
+        <TooltipProvider>
+          <HelpDialog open onOpenChange={() => undefined} initialPage={initialPage} />
+        </TooltipProvider>
+      </ToastProvider>
+    </I18nHarness>,
   );
 }
 

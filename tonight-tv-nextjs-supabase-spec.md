@@ -43,7 +43,9 @@ The system should feel like:
 
 Tonight TV is **not a video hosting service** and should not proxy or rebroadcast movie bytes through the application backend.
 
-Every viewer's browser loads the configured media URL directly from the original media host.
+Every viewer's browser loads the configured media directly from its approved source. For
+`local_p2p`, the owner browser seeds the selected `File` and viewers receive pieces
+directly from the WebRTC swarm; Tonight TV infrastructure never carries the movie bytes.
 
 Supabase is responsible only for:
 
@@ -152,6 +154,8 @@ The first version does not need:
 - Downloading protected streams.
 - Public Torrent search/indexers or browser BitTorrent clients. Owner-supplied
   Magnet URIs and `.torrent` metadata are now an approved first-class source.
+- Stream from Device (`local_p2p`) through browser WebTorrent/WebRTC is approved. It
+  is file distribution, not screen sharing, and it has no server upload or storage path.
 - Application-side video transcoding. Torrent remux/transcode may occur only in
   the separate Webtor Self-Hosted gateway; media bytes still bypass Next.js and Supabase.
 - Server-side media rebroadcasting.
@@ -1256,6 +1260,9 @@ Support:
 ```text
 MP4
 HLS (.m3u8)
+YouTube
+Torrent through the current Webtor implementation
+Stream from Device through local WebTorrent/WebRTC P2P (`local_p2p`)
 ```
 
 Optionally:

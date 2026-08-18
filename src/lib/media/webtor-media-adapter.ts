@@ -74,7 +74,6 @@ export function createWebtorMediaPlayerAdapter(options: Options): WebtorMediaPla
   const events = options.events ?? {};
   let player: WebtorPlayer | null = null;
   let mediaId: string | null = null;
-  let currentMedia: SyncMedia | null = null;
   let currentTime = 0;
   let duration: number | null = null;
   let ready = false;
@@ -144,7 +143,6 @@ export function createWebtorMediaPlayerAdapter(options: Options): WebtorMediaPla
     ready = false;
     player = null;
     mediaId = media?.id ?? null;
-    currentMedia = media;
     currentTime = 0;
     duration = null;
     options.mount.replaceChildren();

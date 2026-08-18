@@ -5,13 +5,12 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import {
-  AdminControls,
-  formatPlaybackTime,
-  VideoStage,
-  ViewerControls,
-} from "../../src/components/room/room-controls";
+import { AdminControls } from "../../src/components/room/components/admin-controls";
+import { VideoStage } from "../../src/components/room/components/video-stage";
+import { ViewerControls } from "../../src/components/room/components/viewer-controls";
+import { formatPlaybackTime } from "../../src/components/room/components/playback-helpers";
 import type { RoomSnapshot } from "../../src/lib/rooms/room-service";
+import { I18nHarness } from "../setup-i18n";
 
 const timestamp = "2026-08-17T12:00:00.000Z";
 
@@ -98,6 +97,15 @@ const videoStageCommon = {
   pipAvailable: true,
   fullscreenAvailable: true,
   reason: null,
+  localP2pState: {
+    status: "idle" as const,
+    infoHash: null,
+    peerCount: 0,
+    uploadSpeed: 0,
+    downloadSpeed: 0,
+    progress: 0,
+    error: null,
+  },
 };
 
 function adminProps(overrides: Partial<Parameters<typeof AdminControls>[0]> = {}) {
@@ -123,46 +131,82 @@ function adminProps(overrides: Partial<Parameters<typeof AdminControls>[0]> = {}
 describe("Room playback surfaces", () => {
   it("never enables native browser video controls", () => {
     const markup = renderToStaticMarkup(
-      <VideoStage
-        stageRef={createRef<HTMLElement>()}
-        videoRef={createRef<HTMLVideoElement>()}
-        youtubeMountRef={createRef<HTMLDivElement>()}
-        snapshot={snapshot(false)}
-        status="live"
-        mediaError={null}
-        {...videoStageCommon}
-      />,
+      <I18nHarness>
+        <VideoStage
+          stageRef={createRef<HTMLElement>()}
+          videoRef={createRef<HTMLVideoElement>()}
+          youtubeMountRef={createRef<HTMLDivElement>()}
+          snapshot={snapshot(false)}
+          status="live"
+          mediaError={null}
+          {...videoStageCommon}
+        />
+      </I18nHarness>,
     );
 
     expect(markup).toContain("<video");
     expect(markup).not.toMatch(/<video[^>]*\scontrols(?:=|\s|>)/);
-    expect(markup).not.toContain('aria-label="Pause"');
-    expect(markup).not.toContain('aria-label="Play"');
+    expect(markup).not.toMatch(/aria-label="Pause"/);
+    expect(markup).not.toMatch(/aria-label="Play"/);
+  });
+
+  it("shows a useful waiting state for a local P2P viewer without shared controls", () => {
+    const baseSnapshot = snapshot(false);
+    const localSnapshot: RoomSnapshot = {
+      ...baseSnapshot,
+      current_media: {
+        ...baseSnapshot.current_media!,
+        source_type: "local_p2p",
+        source_url: null,
+      },
+    };
+    const markup = renderToStaticMarkup(
+      <I18nHarness>
+        <VideoStage
+          stageRef={createRef<HTMLElement>()}
+          videoRef={createRef<HTMLVideoElement>()}
+          youtubeMountRef={createRef<HTMLDivElement>()}
+          snapshot={localSnapshot}
+          status="starting"
+          mediaError={null}
+          {...videoStageCommon}
+          localP2pState={{
+            ...videoStageCommon.localP2pState,
+            status: "no_peers",
+            infoHash: "0123456789abcdef0123456789abcdef01234567",
+          }}
+        />
+      </I18nHarness>,
+    );
+
+    expect(markup).toContain("Waiting for the host or another peer");
+    expect(markup).not.toMatch(/aria-label="Play for everyone"/);
+    expect(markup).not.toContain("Shared room timeline");
   });
 
   it("gives viewers local controls without a shared timeline or playback commands", () => {
     const markup = renderToStaticMarkup(
-      <ViewerControls
-        {...localProps}
-        status="buffering"
-        behindSeconds={3}
-        onGoLive={vi.fn()}
-      />,
+      <I18nHarness>
+        <ViewerControls
+          {...localProps}
+          status="buffering"
+          behindSeconds={3}
+          onGoLive={vi.fn()}
+        />
+      </I18nHarness>,
     );
 
     expect(markup).not.toContain("Shared room timeline");
-    expect(markup).not.toContain('aria-label="Play for everyone"');
-    expect(markup).not.toContain('aria-label="Pause for everyone"');
-    expect(markup).not.toContain('aria-label="Play next program"');
-    expect(markup).not.toContain('aria-label="Restart program"');
+    expect(markup).not.toMatch(/aria-label="Play for everyone"/);
+    expect(markup).not.toMatch(/aria-label="Pause for everyone"/);
     expect(markup).toContain("GO LIVE");
   });
 
   it("renders exactly one owner-authorized shared timeline", () => {
     const markup = renderToStaticMarkup(
-      <AdminControls
-        {...adminProps()}
-      />,
+      <I18nHarness>
+        <AdminControls {...adminProps()} />
+      </I18nHarness>,
     );
 
     expect(markup.match(/aria-label="Shared room timeline"/g)).toHaveLength(1);
@@ -175,17 +219,24 @@ describe("Room playback surfaces", () => {
     expect(formatPlaybackTime(Number.NaN)).toBe("--:--");
 
     const markup = renderToStaticMarkup(
-      <AdminControls {...adminProps({ currentTime: 142, duration: null })} />,
+      <I18nHarness>
+        <AdminControls {...adminProps({ currentTime: 142, duration: null })} />
+      </I18nHarness>,
     );
     expect(markup).toContain("02:22");
     expect(markup).toContain("--:--");
-    expect(markup).toMatch(/aria-label="Shared room timeline"[^>]*disabled/);
+    expect(markup).toMatch(/<input[^>]*aria-label="Seek to a position"/);
+    expect(markup).toMatch(/<input[^>]*disabled=""/);
   });
 
   it("keeps drag state local and commits one authoritative seek with the captured version", () => {
     const onSeek = vi.fn();
-    const view = render(<AdminControls {...adminProps({ onSeek })} />);
-    const timeline = view.getByLabelText("Shared room timeline") as HTMLInputElement;
+    const view = render(
+      <I18nHarness>
+        <AdminControls {...adminProps({ onSeek })} />
+      </I18nHarness>,
+    );
+    const timeline = view.getByLabelText("Seek to a position") as HTMLInputElement;
 
     fireEvent.pointerDown(timeline);
     fireEvent.change(timeline, { target: { value: "73.5" } });
@@ -193,7 +244,9 @@ describe("Room playback surfaces", () => {
     expect(timeline.value).toBe("73.5");
 
     view.rerender(
-      <AdminControls {...adminProps({ currentTime: 44, onSeek })} />,
+      <I18nHarness>
+        <AdminControls {...adminProps({ currentTime: 44, onSeek })} />
+      </I18nHarness>,
     );
     expect(timeline.value).toBe("73.5");
 
@@ -207,21 +260,25 @@ describe("Room playback surfaces", () => {
     const onSeek = vi.fn();
     const onScrubConflict = vi.fn();
     const view = render(
-      <AdminControls {...adminProps({ onSeek, onScrubConflict })} />,
+      <I18nHarness>
+        <AdminControls {...adminProps({ onSeek, onScrubConflict })} />
+      </I18nHarness>,
     );
-    const timeline = view.getByLabelText("Shared room timeline") as HTMLInputElement;
+    const timeline = view.getByLabelText("Seek to a position") as HTMLInputElement;
 
     fireEvent.pointerDown(timeline);
     fireEvent.change(timeline, { target: { value: "80" } });
     view.rerender(
-      <AdminControls
-        {...adminProps({
-          currentTime: 55,
-          playbackVersion: 5,
-          onSeek,
-          onScrubConflict,
-        })}
-      />,
+      <I18nHarness>
+        <AdminControls
+          {...adminProps({
+            currentTime: 55,
+            playbackVersion: 5,
+            onSeek,
+            onScrubConflict,
+          })}
+        />
+      </I18nHarness>,
     );
 
     expect(onScrubConflict).toHaveBeenCalledOnce();

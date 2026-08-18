@@ -2,7 +2,6 @@
 
 import {
   ArrowRight,
-  CheckCircle2,
   Film,
   Link2,
   Loader2,
@@ -19,22 +18,21 @@ import { type CSSProperties, type FormEvent, useCallback, useId, useState } from
 
 import type { RoomJoinPreview } from "@/lib/rooms/room-service";
 import { posterForTitle } from "@/lib/room/posters";
+import { useLocale, useTranslations } from "@/i18n";
 import { Brand } from "../app/brand";
-import { Button, Field, Input, LoadingBlock, StatusBadge, useToast } from "../ui/primitives";
+import { Button, Field, Input, LoadingBlock, StatusBadge, useToast } from "@/components/primitives";
 
 type JoinStage = "idle" | "preparing" | "authenticating" | "joining" | "connecting" | "live";
 
-const STAGE_COPY: ReadonlyArray<{
+const STAGE_ICONS: ReadonlyArray<{
   id: JoinStage;
-  label: string;
-  body: string;
   icon: React.ComponentType<{ size?: number; "aria-hidden"?: boolean }>;
 }> = [
-  { id: "preparing", label: "Preparing room…", body: "Fetching room information", icon: Loader2 },
-  { id: "authenticating", label: "Authenticating…", body: "Verifying your identity", icon: Lock },
-  { id: "joining", label: "Joining room…", body: "Creating your membership", icon: UserPlus },
-  { id: "connecting", label: "Connecting…", body: "Establishing live connection", icon: Wifi },
-  { id: "live", label: "Joining live…", body: "Getting you in sync", icon: Video },
+  { id: "preparing", icon: Loader2 },
+  { id: "authenticating", icon: Lock },
+  { id: "joining", icon: UserPlus },
+  { id: "connecting", icon: Wifi },
+  { id: "live", icon: Video },
 ];
 
 export function RoomJoinGate({
@@ -52,23 +50,34 @@ export function RoomJoinGate({
 }) {
   const router = useRouter();
   const toast = useToast();
+  const t = useTranslations("room.join");
+  const tCommon = useTranslations("common");
+  const { direction } = useLocale();
   const inputId = useId();
   const [nickname, setNickname] = useState(initialNickname ?? "");
   const goHome = useCallback(() => router.push("/"), [router]);
 
   const isJoining = joinStage !== "idle";
-  const activeIndex = isJoining ? STAGE_COPY.findIndex((s) => s.id === joinStage) : -1;
+  const activeIndex = isJoining ? STAGE_ICONS.findIndex((s) => s.id === joinStage) : -1;
   const heroUrl = posterForTitle(preview?.current_title).hero;
   const heroStyle = preview?.current_title
     ? ({ ["--tt-hero-url" as string]: `url(${heroUrl})` } as CSSProperties)
     : undefined;
+  const inputIconStyle: CSSProperties = {
+    position: "absolute",
+    top: "50%",
+    transform: "translateY(-50%)",
+    color: "var(--tt-text-muted)",
+    ...(direction === "rtl" ? { right: 14, left: "auto" } : { left: 14, right: "auto" }),
+  };
+  const inputPadding = direction === "rtl" ? { paddingRight: 38 } : { paddingLeft: 38 };
 
   function submit(event: FormEvent) {
     event.preventDefault();
     if (isJoining) return;
     const trimmed = nickname.trim();
     if (trimmed.length < 1 || trimmed.length > 40) {
-      toast.push("Display name must contain between 1 and 40 characters.", "danger");
+      toast.push(t("nameLength"), "danger");
       return;
     }
     onJoin(trimmed);
@@ -86,15 +95,15 @@ export function RoomJoinGate({
         >
           <div className="tt-join-preview-inner">
             <Brand size="md" />
-            <p className="tt-kicker" style={{ marginTop: 24 }}>You&apos;re about to join</p>
+            <p className="tt-kicker" style={{ marginTop: 24 }}>{t("kicker")}</p>
             <h1 id="join-room-title" className="tt-title">
-              {preview?.room_name ?? "Private room"}
+              {preview?.room_name ?? t("title")}
             </h1>
             <div className="tt-inline-cluster" style={{ gap: 8, flexWrap: "wrap" }}>
-              <StatusBadge tone="live">Room is ready</StatusBadge>
+              <StatusBadge tone="live">{t("statusReady")}</StatusBadge>
               {preview?.has_active_media ? (
                 <StatusBadge tone="accent">
-                  <Film size={11} aria-hidden /> Now playing
+                  <Film size={11} aria-hidden /> {t("nowPlaying")}
                 </StatusBadge>
               ) : null}
             </div>
@@ -111,46 +120,36 @@ export function RoomJoinGate({
                   <Film size={22} />
                 </div>
                 <div>
-                  <p className="tt-kicker" style={{ marginBottom: 4 }}>Currently playing</p>
+                  <p className="tt-kicker" style={{ marginBottom: 4 }}>{t("currentlyPlaying")}</p>
                   <strong style={{ fontSize: 18 }}>{preview.current_title}</strong>
                 </div>
               </div>
             ) : null}
             <div className="tt-inline-cluster" style={{ gap: 12, color: "var(--tt-text-muted)", fontSize: 13 }}>
               <Users size={14} aria-hidden style={{ color: "var(--tt-accent)" }} />
-              Friends are watching · Jump in and enjoy together.
+              {t("invite")}
             </div>
           </div>
         </div>
         <div className="tt-join-form" aria-live="polite">
           <div>
-            <p className="tt-kicker">Join this room</p>
-            <h2 className="tt-media-title">Join live</h2>
-            <p className="tt-secondary">Choose the name your friends will see.</p>
+            <p className="tt-kicker">{t("formKicker")}</p>
+            <h2 className="tt-media-title">{t("formTitle")}</h2>
+            <p className="tt-secondary">{t("formSubtitle")}</p>
           </div>
           {!isJoining ? (
             <form className="tt-form" onSubmit={submit} noValidate>
-              <Field label="Display name" htmlFor={inputId} help="This is how your friends will see you.">
+              <Field label={t("label")} htmlFor={inputId} help={t("labelHelp")}>
                 <div style={{ position: "relative" }}>
-                  <User
-                    size={15}
-                    aria-hidden
-                    style={{
-                      position: "absolute",
-                      left: 14,
-                      top: "50%",
-                      transform: "translateY(-50%)",
-                      color: "var(--tt-text-muted)",
-                    }}
-                  />
+                  <User size={15} aria-hidden style={inputIconStyle} />
                   <Input
                     id={inputId}
                     autoComplete="nickname"
                     maxLength={40}
                     value={nickname}
                     onChange={(event) => setNickname(event.target.value)}
-                    placeholder="Enter your nickname"
-                    style={{ paddingLeft: 38 }}
+                    placeholder={t("placeholder")}
+                    style={inputPadding}
                     aria-describedby={error ? `${inputId}-err` : undefined}
                     required
                   />
@@ -162,17 +161,17 @@ export function RoomJoinGate({
                 </div>
               ) : null}
               <Button type="submit" variant="primary" size="lg" className="tt-button-wide" onClick={() => undefined}>
-                <span className="tt-button-label">JOIN LIVE</span>
-                <ArrowRight size={18} aria-hidden />
+                <span className="tt-button-label">{t("submit")}</span>
+                <ArrowRight size={18} aria-hidden className="tt-icon-mirror" />
               </Button>
               <p className="tt-secondary" style={{ fontSize: 12, textAlign: "center" }}>
-                <ShieldCheck size={12} aria-hidden style={{ verticalAlign: -1, marginRight: 4, color: "var(--tt-live)" }} />
-                By joining, you&apos;ll be added to the room and can watch live.
+                <ShieldCheck size={12} aria-hidden style={{ verticalAlign: -1, marginInlineEnd: 4, color: "var(--tt-live)" }} />
+                {t("notice")}
               </p>
             </form>
           ) : (
             <div className="tt-lifecycle" role="status" aria-live="polite">
-              {STAGE_COPY.map((stage, index) => {
+              {STAGE_ICONS.map((stage, index) => {
                 const Icon = stage.icon;
                 const isCurrent = index === activeIndex;
                 const isPast = activeIndex > index;
@@ -183,14 +182,14 @@ export function RoomJoinGate({
                     aria-current={isCurrent ? "step" : undefined}
                   >
                     <div className="tt-lifecycle-step-icon" aria-hidden>
-                      {isCurrent ? <Icon size={16} /> : isPast ? <CheckCircle2 size={16} /> : <Icon size={16} />}
+                      <Icon size={16} />
                     </div>
                     <div className="tt-lifecycle-step-label">
-                      <strong>{stage.label}</strong>
-                      <span>{stage.body}</span>
+                      <strong>{t(`lifecycle.${stage.id}.label`)}</strong>
+                      <span>{t(`lifecycle.${stage.id}.body`)}</span>
                     </div>
                     <span className="tt-lifecycle-step-mark">
-                      {isCurrent ? "active" : isPast ? "done" : "queued"}
+                      {isCurrent ? tCommon("loading") : isPast ? tCommon("close") : tCommon("more")}
                     </span>
                   </div>
                 );
@@ -201,18 +200,18 @@ export function RoomJoinGate({
       </section>
       <div className="tt-join-foot">
         <span>
-          <ShieldCheck size={12} aria-hidden style={{ verticalAlign: -1, marginRight: 4, color: "var(--tt-live)" }} />
-          Private room. Invite only.
+          <ShieldCheck size={12} aria-hidden style={{ verticalAlign: -1, marginInlineEnd: 4, color: "var(--tt-live)" }} />
+          {tCommon("privateRooms")}
         </span>
         <span>·</span>
-        <span>Your privacy is protected.</span>
+        <span>{t("invite")}</span>
         <button
           type="button"
           className="tt-link"
-          style={{ marginLeft: 12, background: "transparent", border: 0, cursor: "pointer" }}
+          style={{ marginInlineStart: 12, background: "transparent", border: 0, cursor: "pointer" }}
           onClick={goHome}
         >
-          <Link2 size={12} aria-hidden style={{ verticalAlign: -1, marginRight: 4 }} /> Back to Tonight TV
+          <Link2 size={12} aria-hidden style={{ verticalAlign: -1, marginInlineEnd: 4 }} className="tt-icon-mirror" /> {tCommon("back")}
         </button>
       </div>
     </main>
@@ -220,10 +219,11 @@ export function RoomJoinGate({
 }
 
 export function RoomJoinLoading() {
+  const t = useTranslations("room.join");
   return (
     <main className="tt-join">
       <div className="tt-auth-card tt-card">
-        <LoadingBlock label="Preparing room…" />
+        <LoadingBlock label={t("lifecycle.preparing.label")} />
       </div>
     </main>
   );
@@ -239,24 +239,27 @@ export function RoomJoinError({
   onBack?: () => void;
 }) {
   const router = useRouter();
+  const t = useTranslations("room.join");
+  const tCommon = useTranslations("common");
+  const tErrors = useTranslations("room.errors");
   return (
     <main className="tt-entry">
       <div className="tt-entry-wrap" style={{ maxWidth: 540 }}>
         <section className="tt-auth-card" aria-labelledby="room-error-title">
           <Brand size="md" />
           <div style={{ height: 16 }} />
-          <p className="tt-kicker">Room unavailable</p>
+          <p className="tt-kicker">{tErrors("noRoom")}</p>
           <h1 id="room-error-title" className="tt-title">
-            This room link is invalid
+            {t("title")}
           </h1>
           <p className="tt-secondary">{error}</p>
           <div className="tt-form-actions">
-            {onRetry ? <Button onClick={onRetry}>Retry</Button> : null}
+            {onRetry ? <Button onClick={onRetry}>{tCommon("retry")}</Button> : null}
             <Button
               variant="primary"
               onClick={() => (onBack ? onBack() : router.push("/"))}
             >
-              Back to Tonight TV
+              {tCommon("back")}
             </Button>
           </div>
         </section>

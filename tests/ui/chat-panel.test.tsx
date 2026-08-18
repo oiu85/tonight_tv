@@ -1,37 +1,42 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { ChatPanel } from "../../src/components/room/room-panels";
+import { ChatPanel } from "../../src/components/room/components/chat-panel";
 import { RoomChatError } from "../../src/lib/chat/room-chat-service";
 import { roomUiErrorFromUnknown } from "../../src/lib/room/domain-errors";
+import { I18nHarness } from "../setup-i18n";
 
 const userId = "33333333-3333-4333-8333-333333333333";
 
 describe("ChatPanel wiring", () => {
   it("renders an empty-state for chat when no messages are present", () => {
     const markup = renderToStaticMarkup(
-      <ChatPanel
-        messages={[]}
-        currentUserId={userId}
-        connected={true}
-        onSend={() => Promise.resolve()}
-      />,
+      <I18nHarness>
+        <ChatPanel
+          messages={[]}
+          currentUserId={userId}
+          connected={true}
+          onSend={() => Promise.resolve()}
+        />
+      </I18nHarness>,
     );
     expect(markup).toContain("No messages yet");
-    expect(markup).toContain("aria-live=\"polite\"");
+    expect(markup).toContain('aria-live="polite"');
   });
 
   it("disables the composer when the room is reconnecting", () => {
     const markup = renderToStaticMarkup(
-      <ChatPanel
-        messages={[]}
-        currentUserId={userId}
-        connected={false}
-        onSend={() => Promise.resolve()}
-      />,
+      <I18nHarness>
+        <ChatPanel
+          messages={[]}
+          currentUserId={userId}
+          connected={false}
+          onSend={() => Promise.resolve()}
+        />
+      </I18nHarness>,
     );
     expect(markup).toContain("Reconnecting");
-    expect(markup).toContain("disabled=\"\"");
+    expect(markup).toContain('disabled=""');
   });
 
   it("exposes the current user message surface distinctly", () => {
@@ -54,12 +59,14 @@ describe("ChatPanel wiring", () => {
       },
     ];
     const markup = renderToStaticMarkup(
-      <ChatPanel
-        messages={messages}
-        currentUserId={userId}
-        connected={true}
-        onSend={() => Promise.resolve()}
-      />,
+      <I18nHarness>
+        <ChatPanel
+          messages={messages}
+          currentUserId={userId}
+          connected={true}
+          onSend={() => Promise.resolve()}
+        />
+      </I18nHarness>,
     );
     expect(markup).toContain("tt-message-current");
     expect(markup).toContain("(you)");

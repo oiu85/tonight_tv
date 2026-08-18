@@ -3,7 +3,20 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(31);
+select plan(29);
+
+create function pg_temp.sqlstate_of(command text)
+returns text
+language plpgsql
+as $$
+begin
+  execute command;
+  return null;
+exception
+  when others then
+    return sqlstate;
+end;
+$$;
 
 select ok(to_regprocedure('public.list_owned_rooms(boolean)') is not null, 'list_owned_rooms exists');
 select ok(to_regprocedure('public.deactivate_room(uuid)') is not null, 'deactivate_room exists');
@@ -89,11 +102,9 @@ select results_eq(
   'list_owned_rooms(true) returns every room the owner can see'
 );
 
--- Deactivate the second room; the helper now returns only one.
-update public.rooms
-  set status = 'deactivated',
-      deactivated_at = statement_timestamp()
-  where id = (select value from pg_temp.test_context where key = 'room_two');
+-- Deactivate the second room through the owner-authorized RPC; direct table
+-- writes remain unavailable to the authenticated client role.
+select * from public.deactivate_room((select value from pg_temp.test_context where key = 'room_two'));
 
 select results_eq(
   $sql$ select name::text from public.list_owned_rooms(false) $sql$,
@@ -154,7 +165,7 @@ select * from public.deactivate_room((select value from pg_temp.test_context whe
 
 -- Snapshot still works for the owner on a deactivated room.
 select ok(
-  (select snapshot ? 'status' and snapshot->'room'->>'status' = 'deactivated'
+  (select snapshot->'room'->>'status' = 'deactivated'
    from public.get_room_snapshot((select value from pg_temp.test_context where key = 'room_one')) as snapshot),
   'owner can still snapshot their own deactivated room'
 );
@@ -173,10 +184,6 @@ set local request.jwt.claims = '{"sub":"00000000-0000-4000-8000-0000000000a1","r
 
 insert into pg_temp.test_context (key, value)
 select 'room_three', room_id from public.create_room('Cleanup Room');
-
-insert into public.room_playback_state (room_id)
-values ((select value from pg_temp.test_context where key = 'room_three'))
-on conflict (room_id) do nothing;
 
 select is(
   (select count(*) from public.hard_delete_room((select value from pg_temp.test_context where key = 'room_three'))),

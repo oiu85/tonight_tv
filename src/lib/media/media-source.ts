@@ -1,7 +1,7 @@
 import type { MediaSourceType } from "./media-queue-service";
 import type { TorrentErrorCategory } from "../torrent/torrent-contracts";
 
-export type MediaRuntimeSourceKind = "direct" | "hls" | "youtube";
+export type MediaRuntimeSourceKind = "direct" | "hls" | "youtube" | "local_p2p";
 
 export type MediaSourceErrorCategory =
   | "network_source_unreachable"
@@ -19,6 +19,13 @@ export type MediaSourceErrorCategory =
   | "youtube_client_identity_missing"
   | "youtube_html5_player_error"
   | "youtube_playback_error"
+  | "p2p_unsupported"
+  | "p2p_no_peers"
+  | "p2p_tracker_unavailable"
+  | "p2p_host_unavailable"
+  | "p2p_stream_failed"
+  | "p2p_file_required"
+  | "p2p_media_unsupported"
   | TorrentErrorCategory
   | "unknown_media_error";
 
@@ -51,6 +58,9 @@ export function resolveMediaRuntimeSource(
 ): MediaRuntimeSourceKind {
   if (sourceType === "youtube") {
     return "youtube";
+  }
+  if (sourceType === "local_p2p") {
+    return "local_p2p";
   }
   if (sourceType === "hls") {
     return "hls";

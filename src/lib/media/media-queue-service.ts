@@ -11,6 +11,7 @@ import {
 import { createBrowserSupabaseClient } from "../supabase/browser";
 import type { Database } from "../supabase/database.types";
 import { parseTorrentFileIdentity } from "../torrent/torrent-manifest";
+import type { LocalP2pDescriptor } from "../p2p/local-p2p-contracts";
 
 export type MediaSourceType = Database["public"]["Enums"]["media_source_type"];
 export type MediaItem = Readonly<Database["public"]["Tables"]["media_items"]["Row"]>;
@@ -19,9 +20,10 @@ export type MediaItemInput =
   | Readonly<{
       title: string;
       sourceUrl: string;
-      sourceType: Exclude<MediaSourceType, "youtube" | "torrent">;
+      sourceType: Exclude<MediaSourceType, "youtube" | "torrent" | "local_p2p">;
       youtubeVideoId?: never;
       torrent?: never;
+      localP2p?: never;
     }>
   | Readonly<{
       title: string;
@@ -29,6 +31,7 @@ export type MediaItemInput =
       sourceType: "youtube";
       youtubeVideoId: string;
       torrent?: never;
+      localP2p?: never;
     }>
   | Readonly<{
       title: string;
@@ -46,6 +49,15 @@ export type MediaItemInput =
         fileName: string;
         fileSize: number;
       }>;
+      localP2p?: never;
+    }>
+  | Readonly<{
+      title: string;
+      sourceUrl?: null;
+      sourceType: "local_p2p";
+      youtubeVideoId?: never;
+      torrent?: never;
+      localP2p: LocalP2pDescriptor;
     }>;
 
 type NormalizedTorrentInput = Readonly<{
@@ -66,6 +78,7 @@ type NormalizedMediaItemInput = Readonly<{
   sourceType: MediaSourceType;
   youtubeVideoId: string | null;
   torrent: NormalizedTorrentInput | null;
+  localP2p: LocalP2pDescriptor | null;
 }>;
 
 export type MediaQueueErrorCode =
@@ -127,6 +140,7 @@ const SOURCE_TYPES = new Set<MediaSourceType>([
   "hls",
   "youtube",
   "torrent",
+  "local_p2p",
 ]);
 const YOUTUBE_VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/;
 const TORRENT_METADATA_BUCKET = "torrent-metadata";
@@ -149,7 +163,7 @@ function normalizeInput(input: MediaItemInput): NormalizedMediaItemInput {
   }
   if (!SOURCE_TYPES.has(input.sourceType)) {
     throw invalidInput(
-      "Media source type must be auto, mp4, hls, youtube, or torrent.",
+      "Media source type must be auto, mp4, hls, youtube, torrent, or local_p2p.",
     );
   }
 
@@ -166,6 +180,7 @@ function normalizeInput(input: MediaItemInput): NormalizedMediaItemInput {
       sourceType: "youtube",
       youtubeVideoId,
       torrent: null,
+      localP2p: null,
     });
   }
 
@@ -215,6 +230,7 @@ function normalizeInput(input: MediaItemInput): NormalizedMediaItemInput {
           fileName,
           fileSize: torrent.fileSize,
         }),
+        localP2p: null,
       });
     }
 
@@ -245,7 +261,19 @@ function normalizeInput(input: MediaItemInput): NormalizedMediaItemInput {
         fileName,
         fileSize: torrent.fileSize,
       }),
+      localP2p: null,
     });
+  }
+
+  if (input.sourceType === "local_p2p") {
+    const descriptor = input.localP2p;
+    const infoHash = descriptor.infoHash.trim().toLowerCase();
+    const magnetUri = descriptor.magnetUri.trim();
+    const fileName = descriptor.fileName.trim();
+    if (!/^[a-f0-9]{40}$/.test(infoHash) || !magnetUri.startsWith("magnet:?") || magnetUri.length > 16_384 || !magnetUri.toLowerCase().includes(`xt=urn:btih:${infoHash}`) || fileName.length < 1 || fileName.length > 255 || /[\\/]/.test(fileName) || !Number.isFinite(descriptor.fileSize) || descriptor.fileSize <= 0) {
+      throw invalidInput("Local P2P media requires a valid browser-generated descriptor.");
+    }
+    return Object.freeze({ title, sourceUrl: null, sourceType: "local_p2p", youtubeVideoId: null, torrent: null, localP2p: Object.freeze({ infoHash, magnetUri, fileName, fileSize: descriptor.fileSize, mimeType: descriptor.mimeType?.trim() || null }) });
   }
 
   const sourceUrl = input.sourceUrl.trim();
@@ -272,15 +300,8 @@ function normalizeInput(input: MediaItemInput): NormalizedMediaItemInput {
     sourceType: input.sourceType,
     youtubeVideoId: null,
     torrent: null,
+    localP2p: null,
   });
-}
-
-function torrentMetadataPath(
-  roomId: string,
-  mediaId: string,
-  infoHash: string,
-): string {
-  return `rooms/${roomId}/media/${mediaId}/${infoHash}.torrent`;
 }
 
 function mediaRpcArgs(
@@ -294,6 +315,9 @@ function mediaRpcArgs(
     p_title: normalized.title,
     p_source_type: normalized.sourceType,
   };
+  if (normalized.localP2p) {
+    return { p_room_id: roomId, p_media_id: mediaId, p_title: normalized.title, p_info_hash: normalized.localP2p.infoHash, p_magnet_uri: normalized.localP2p.magnetUri, p_file_name: normalized.localP2p.fileName, p_file_size: normalized.localP2p.fileSize };
+  }
   if (normalized.sourceType === "youtube") {
     return {
       ...base,
@@ -426,23 +450,6 @@ export function createMediaQueueService(
 ): MediaQueueService {
   const torrentMetadata = () => client.storage.from(TORRENT_METADATA_BUCKET);
 
-  async function uploadTorrentMetadata(
-    path: string,
-    file: File,
-  ): Promise<void> {
-    const upload = await torrentMetadata().upload(path, file, {
-      contentType: "application/x-bittorrent",
-      upsert: false,
-    });
-    if (upload.error) {
-      throw new MediaQueueError(
-        "metadata_upload_failed",
-        "Unable to upload the private Torrent metadata file.",
-        { cause: upload.error },
-      );
-    }
-  }
-
   async function removeTorrentMetadata(path: string): Promise<void> {
     const cleanup = await torrentMetadata().remove([path]);
     if (cleanup.error) {
@@ -477,10 +484,10 @@ export function createMediaQueueService(
       throw invalidInput("Enter and inspect a Magnet URI first.");
     }
     const args = mediaRpcArgs(roomId, mediaId, normalized, metadataPath);
-    const { data, error } = await client.rpc(
-      "add_media_item",
-      normalized.torrent ? { ...args, p_media_id: mediaId } : args,
-    );
+    const result = normalized.localP2p
+      ? await client.rpc("add_local_p2p_media_item", args as { p_room_id: string; p_media_id: string; p_title: string; p_info_hash: string; p_magnet_uri: string; p_file_name: string; p_file_size: number })
+      : await client.rpc("add_media_item", normalized.torrent ? { ...args, p_media_id: mediaId } : args);
+    const { data, error } = result;
     if (error && metadataPath) {
       const cleanup = await torrentMetadata().remove([metadataPath]);
       if (cleanup.error) {
@@ -526,14 +533,14 @@ export function createMediaQueueService(
           })
         : normalized;
     const metadataPath = null;
-    const shouldUpload = false;
-    const { data, error } = await client.rpc(
-      "edit_media_item",
-      {
-        ...mediaRpcArgs(roomId, mediaId, effectiveNormalized, metadataPath),
-        p_media_id: mediaId,
-      },
-    );
+    const editArgs = {
+      ...mediaRpcArgs(roomId, mediaId, effectiveNormalized, metadataPath),
+      p_media_id: mediaId,
+    };
+    const result = effectiveNormalized.localP2p
+      ? await client.rpc("edit_local_p2p_media_item", editArgs as { p_room_id: string; p_media_id: string; p_title: string; p_info_hash: string; p_magnet_uri: string; p_file_name: string; p_file_size: number })
+      : await client.rpc("edit_media_item", editArgs);
+    const { data, error } = result;
     const item = unwrapSingle(data, error);
     if (previousPath && previousPath !== item.torrent_metadata_path) {
       await removeTorrentMetadata(previousPath);

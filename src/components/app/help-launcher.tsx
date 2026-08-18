@@ -4,7 +4,7 @@ import { CircleHelp } from "lucide-react";
 import { lazy, Suspense, useState } from "react";
 
 import type { HelpTopic } from "./help-dialog";
-import { Button, IconButton } from "../ui/primitives";
+import { Button, IconButton } from "@/components/primitives";
 
 // The help dialog pulls in dozens of icons and rich help content, so we load
 // it lazily. The trigger stays eagerly rendered so the affordance is

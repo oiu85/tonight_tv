@@ -21,12 +21,17 @@ import {
   RoomJoinGate,
   RoomJoinLoading,
 } from "../../src/components/room/room-join-gate";
-import { ToastProvider } from "../../src/components/ui/primitives";
+import { ToastProvider } from "../../src/components/primitives";
 import type { RoomJoinPreview } from "../../src/lib/rooms/room-service";
 import { renderToStaticMarkup } from "react-dom/server";
+import { I18nHarness } from "../setup-i18n";
 
 function withProviders(node: React.ReactNode) {
-  return <ToastProvider>{node}</ToastProvider>;
+  return (
+    <I18nHarness>
+      <ToastProvider>{node}</ToastProvider>
+    </I18nHarness>
+  );
 }
 
 const preview: RoomJoinPreview = {
@@ -62,7 +67,7 @@ describe("RoomJoinGate", () => {
     expect(markup).toContain("Friday movie night");
     expect(markup).toContain("Horizon Beyond");
     expect(markup).toContain("JOIN LIVE");
-    expect(markup).toContain("Back to Tonight TV");
+    expect(markup).toContain("Back");
   });
 
   it("preserves the previously entered nickname as the initial input value", () => {
@@ -101,7 +106,7 @@ describe("RoomJoinGate", () => {
         <RoomJoinError error="The room could not be reached" onRetry={() => undefined} />,
       ),
     );
-    expect(markup).toContain("Room unavailable");
+    expect(markup).toContain("This room link is invalid");
     expect(markup).toContain("The room could not be reached");
     expect(markup).toContain("Retry");
   });

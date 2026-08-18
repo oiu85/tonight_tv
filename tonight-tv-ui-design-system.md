@@ -776,8 +776,10 @@ Fields:
 
 ```text
 Title
-Source Type: Auto | MP4 | HLS | YouTube | Torrent
-Conditional direct URL, YouTube Video ID, or inspected Magnet/.torrent input
+Source Type: Auto | MP4 | HLS | YouTube | Torrent | Stream from Device
+Conditional direct URL, YouTube Video ID, inspected Magnet/.torrent input, or a
+browser-selected video File. Stream from Device helper text: "Your video stays on
+your device. It streams directly to room viewers over P2P while you host it."
 ```
 
 Optional UI fields may be shown only if they have a real backend contract.
@@ -792,6 +794,7 @@ Actions:
 ```text
 Add to Queue
 Play Now
+Choose Video / Start P2P Stream
 ```
 
 ## 23.2 Subtitle management
@@ -886,6 +889,10 @@ The room is still live.
 [Retry]  (viewer when retry is meaningful)
 [Replace source] (owner only)
 ```
+
+Local P2P states use concise copy: `Preparing stream…`, `Connecting to host…`,
+`Finding peers…`, `Preparing video…`, `Buffering…`, and `The device stream is
+currently unavailable.` Technical tracker/piece terminology is developer-only.
 
 ## Realtime disconnect
 

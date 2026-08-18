@@ -586,14 +586,14 @@ Do not treat every native `pause`/`play` event as owner intent. Owner shared int
 
 # 19. Media Source Runtime
 
-Source URL comes from authorized room snapshot/current media.
+Source metadata comes from the authorized room snapshot/current media.
 
 Media flow:
 
 ```text
-Postgres stores URL
-Browser receives URL as authorized member
-Browser loads media directly from external media host
+Postgres stores control-plane source metadata
+External sources load directly in authorized browsers
+`local_p2p`: owner File -> owner WebTorrent seed -> WebRTC room peers
 ```
 
 Never proxy media bytes through Supabase/Next.js.
@@ -606,11 +606,14 @@ mp4
 hls
 youtube
 torrent
+local_p2p
 ```
 
 Native HLS where appropriate; otherwise hls.js according to repository implementation.
-Torrent runtime URLs are resolved through the authenticated control endpoint and
-then loaded by the same HTML5/hls.js runtime. They are never canonical DB fields.
+Webtor torrent runtime URLs use the existing Webtor adapter. Local P2P descriptors
+are room-private metadata only; video bytes, P2P progress, peer count, and upload/
+download metrics stay in browser-local state. The existing Postgres playback RPCs
+remain the only shared authority.
 
 ---
 

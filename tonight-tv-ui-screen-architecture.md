@@ -784,8 +784,10 @@ Nothing queued yet.
 
 ```text
 Title
-Source type: Auto / MP4 / HLS / YouTube / Torrent
-Conditional direct URL, YouTube Video ID, or Magnet/.torrent inspection flow
+Source type: Auto / MP4 / HLS / YouTube / Torrent / Stream from Device
+Conditional direct URL, YouTube Video ID, Magnet/.torrent inspection, or Choose
+Video flow. Stream from Device keeps the selected File in the owner browser and
+creates the room-private P2P descriptor only after seeding succeeds.
 ```
 
 ## Actions
@@ -803,6 +805,8 @@ Conditional direct URL, YouTube Video ID, or Magnet/.torrent inspection flow
 - supported source type,
 - explain direct-media requirement.
 - require successful Torrent inspection and one selected playable video file.
+- require a non-empty locally selected video File for Stream from Device; no upload
+  is performed. Owner reload/recovery requires selecting the original File again.
 
 For Torrent, multiple video candidates require explicit owner selection. Zero
 subtitle files is valid; selected SRT/VTT sidecars reuse the normal subtitle pipeline.
@@ -1098,6 +1102,7 @@ network/source unreachable
 CORS/referrer/origin blocked
 unsupported codec/container
 HLS manifest/media failure
+p2p unsupported/no peers/host unavailable
 autoplay permission blocked
 authenticated/cookie-protected source unsupported
 expired URL suspected

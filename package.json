@@ -21,15 +21,19 @@
     "db:types": "supabase gen types --local --lang typescript --schema public > src/lib/supabase/database.types.ts"
   },
   "dependencies": {
+    "@fontsource/ibm-plex-sans-arabic": "^5.3.0",
     "@supabase/ssr": "0.12.4",
     "@supabase/supabase-js": "2.112.3",
     "@webtor/embed-sdk-js": "^0.2.19",
     "hls.js": "1.7.0",
     "lucide-react": "^0.468.0",
     "next": "16.3.1",
+    "next-intl": "^4.13.7",
     "parse-torrent": "11.0.24",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "server-only": "^0.0.1",
+    "webtorrent": "^3.0.21"
   },
   "devDependencies": {
     "@testing-library/react": "^16.3.2",

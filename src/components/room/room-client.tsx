@@ -16,6 +16,15 @@ import {
   type MediaItemInput,
 } from "@/lib/media/media-queue-service";
 import { MediaRuntimeError } from "@/lib/media/media-source";
+import type { LocalP2pState } from "@/lib/p2p/local-p2p-contracts";
+import {
+  destroyBrowserLocalP2pRuntime,
+  getBrowserLocalP2pRuntime,
+} from "@/lib/p2p/local-p2p-runtime";
+import {
+  getBrowserLocalP2pSourceService,
+  resetBrowserLocalP2pSourceService,
+} from "@/lib/p2p/local-p2p-source-service";
 import { getBrowserPlaybackCommandService } from "@/lib/playback/playback-command-service";
 import {
   getBrowserRoomService,
@@ -44,21 +53,24 @@ import {
   roomUiErrorFromUnknown,
 } from "@/lib/room/domain-errors";
 import { avatarInitials, avatarToneClass } from "@/lib/room/avatars";
-import { Button, LoadingBlock, Tabs, useToast } from "../ui/primitives";
-import { AdminControls, NowPlaying, VideoStage, ViewerControls } from "./room-controls";
-import {
-  DeleteMediaDialog,
-  MediaDialog,
-  RoomSettingsDialog,
-  SubtitleManagerDialog,
-} from "./room-dialogs";
+import { Button, LoadingBlock, Tabs, useToast } from "@/components/primitives";
+import { AdminControls } from "./components/admin-controls";
+import { NowPlaying } from "./components/now-playing";
+import { VideoStage } from "./components/video-stage";
+import { ViewerControls } from "./components/viewer-controls";
+import { MediaDialog } from "./components/media-dialog";
+import { DeleteMediaDialog } from "./components/delete-media-dialog";
+import { RoomSettingsDialog } from "./components/settings-dialog";
+import { SubtitleManagerDialog } from "./components/subtitle-manager-dialog";
 import {
   RoomJoinError,
   RoomJoinGate,
   RoomJoinLoading,
 } from "./room-join-gate";
-import { ChatPanel, PresenceStrip, UpNextPanel } from "./room-panels";
-import { RoomTopBar } from "./room-topbar";
+import { ChatPanel } from "./components/chat-panel";
+import { PresenceStrip } from "./components/presence-strip";
+import { UpNextPanel } from "./components/queue-panel";
+import { RoomTopBar } from "./components/room-topbar";
 
 type JoinStage = "idle" | "preparing" | "authenticating" | "joining" | "connecting" | "live";
 type JoinedIdentity = { userId: string; roomSessionId: string; displayName: string };
@@ -111,6 +123,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const youtubeMountRef = useRef<HTMLDivElement>(null);
   const webtorMountRef = useRef<HTMLDivElement>(null);
+  const localP2pFileRef = useRef<HTMLInputElement>(null);
   const videoStageRef = useRef<HTMLElement>(null);
   const adapterRef = useRef<RoomMediaPlayerAdapter | null>(null);
   const coordinatorRef = useRef<RoomSyncCoordinator | null>(null);
@@ -154,6 +167,15 @@ export function RoomClient({ roomId }: { roomId: string }) {
     supportsFinePlaybackRateCorrection: true,
     supportsPictureInPicture: true,
     supportsNativeTextTracks: true,
+  });
+  const [localP2pState, setLocalP2pState] = useState<LocalP2pState>({
+    status: "idle",
+    infoHash: null,
+    peerCount: 0,
+    uploadSpeed: 0,
+    downloadSpeed: 0,
+    progress: 0,
+    error: null,
   });
 
   const currentTimeVersion = Math.floor(currentTime * 2);
@@ -324,7 +346,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
             toast.push("Could not mark the program ended", "danger");
           }
         },
-    });
+    }, { roomId, isOwner: ownerRef.current });
     const endedCoordinator = createMediaEndedCoordinator({
       isOwner: ownerRef.current,
       roomId,
@@ -389,11 +411,19 @@ export function RoomClient({ roomId }: { roomId: string }) {
       void coordinator.stop().catch(() => undefined);
       subtitleRuntime.destroy();
       adapter.destroy();
+      resetBrowserLocalP2pSourceService();
+      void destroyBrowserLocalP2pRuntime().catch(() => undefined);
       adapterRef.current = null;
       subtitleRuntimeRef.current = null;
       coordinatorRef.current = null;
     };
   }, [identity, phase, roomId, toast]);
+
+  useEffect(() => {
+    if (phase !== "room") return;
+    const runtime = getBrowserLocalP2pRuntime();
+    return runtime.subscribe(setLocalP2pState);
+  }, [phase]);
 
   useEffect(() => {
     adapterRef.current?.setMuted(muted);
@@ -508,6 +538,60 @@ export function RoomClient({ roomId }: { roomId: string }) {
     }
   }
 
+  async function submitLocalP2p(title: string, file: File, playNow: boolean) {
+    if (!currentSnapshot || !playback) return;
+    setMediaSubmitting(true);
+    setMediaFormError(null);
+    try {
+      const { media } = await getBrowserLocalP2pSourceService().startDeviceStream(
+        roomId,
+        title,
+        file,
+      );
+      if (playNow) {
+        await getBrowserPlaybackCommandService().selectMedia(
+          roomId,
+          playback.state_version,
+          media.id,
+          true,
+        );
+      }
+      await coordinatorRef.current?.goLive();
+      toast.push(playNow ? "Device stream started" : "Device stream added to queue");
+      setMediaDialogOpen(false);
+      setEditingMedia(null);
+    } catch (error) {
+      const friendly = roomUiErrorFromUnknown(
+        error,
+        "The device stream could not be prepared. Try another video file.",
+      );
+      setMediaFormError(friendly.message);
+    } finally {
+      setMediaSubmitting(false);
+    }
+  }
+
+  async function resumeLocalP2p(file: File) {
+    if (!currentSnapshot?.current_media || currentSnapshot.current_media.source_type !== "local_p2p") {
+      return;
+    }
+    setMediaError(null);
+    try {
+      const service = getBrowserLocalP2pSourceService();
+      const descriptor = await service.resolveSource(roomId, currentSnapshot.current_media.id);
+      await service.resumeDeviceStream(descriptor, file);
+      await coordinatorRef.current?.goLive();
+      toast.push("Device stream resumed");
+    } catch (error) {
+      const message = error instanceof Error
+        ? error.message
+        : "The selected file could not resume this device stream.";
+      setMediaError(new MediaRuntimeError("p2p_file_required", message, { cause: error }));
+    } finally {
+      if (localP2pFileRef.current) localP2pFileRef.current.value = "";
+    }
+  }
+
   async function playNow(item: QueueItem) {
     if (playback) {
       await runCommand(
@@ -530,11 +614,6 @@ export function RoomClient({ roomId }: { roomId: string }) {
     await runCommand(
       "next",
       async () => {
-        const queue = [...currentSnapshot.queue].sort(
-          (a, b) => a.queue_position - b.queue_position || a.id.localeCompare(b.id),
-        );
-        const currentIndex = queue.findIndex((item) => item.id === playback.current_media_id);
-        const next = queue[currentIndex + 1];
         return getBrowserPlaybackCommandService().playNext(roomId, playback.state_version);
       },
       "Playing next item",
@@ -566,6 +645,11 @@ export function RoomClient({ roomId }: { roomId: string }) {
     setDeletingMedia(true);
     try {
       await getBrowserMediaQueueService().removeMedia(roomId, deleteMedia.id);
+      if (deleteMedia.source_type === "local_p2p" && deleteMedia.torrent_info_hash) {
+        await getBrowserLocalP2pRuntime()
+          .leaveLocalStream(deleteMedia.torrent_info_hash)
+          .catch(() => undefined);
+      }
       await coordinatorRef.current?.goLive();
       toast.push("Media removed");
       setDeleteMedia(null);
@@ -803,6 +887,16 @@ export function RoomClient({ roomId }: { roomId: string }) {
           onLeave={() => void signOut()}
           onOpenAccountMenu={() => void signOut()}
         />
+        <input
+          ref={localP2pFileRef}
+          type="file"
+          accept="video/*,.mp4,.m4v,.webm,.mov,.mkv,.ogv"
+          hidden
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (file) void resumeLocalP2p(file);
+          }}
+        />
         {channelNotice ? (
           <div
             className={syncState.channelStatus === "error" ? "tt-inline-error" : "tt-inline-warning"}
@@ -842,12 +936,14 @@ export function RoomClient({ roomId }: { roomId: string }) {
               snapshot={currentSnapshot}
               status={syncState.status}
               mediaError={mediaError}
+              localP2pState={localP2pState}
               reason={syncState.reason}
               currentTime={currentTime}
               duration={duration}
               onStartWatching={() => void startWatching()}
               onRetry={() => void coordinatorRef.current?.goLive()}
               onReconnect={() => void coordinatorRef.current?.goLive()}
+              onReselectLocalFile={owner ? () => localP2pFileRef.current?.click() : undefined}
               onMuteToggle={toggleMute}
               muted={muted}
               onCaptionsToggle={toggleCaptions}
@@ -1078,7 +1174,9 @@ export function RoomClient({ roomId }: { roomId: string }) {
           item={editingMedia}
           submitting={mediaSubmitting}
           error={mediaFormError}
+          localP2pState={localP2pState}
           onSubmit={submitMedia}
+          onSubmitLocalP2p={submitLocalP2p}
         />
         <DeleteMediaDialog
           item={deleteMedia}

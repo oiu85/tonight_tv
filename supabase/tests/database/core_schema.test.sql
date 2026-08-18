@@ -34,8 +34,8 @@ select is(
     from pg_enum
     where enumtypid = 'public.media_source_type'::regtype
   ),
-  array['auto', 'mp4', 'hls', 'youtube', 'torrent']::text[],
-  'media_source_type contains all supported source types including YouTube and Torrent'
+  array['auto', 'mp4', 'hls', 'youtube', 'torrent', 'local_p2p']::text[],
+  'media_source_type contains all supported source types including YouTube, Torrent, and Local P2P'
 );
 
 select has_table('public', 'rooms', 'rooms exists');

@@ -124,8 +124,8 @@ Do **not** add any of the following while implementing this backend unless a fut
 - DRM bypass.
 - Cookie/referrer protection bypass.
 - Scraping protected playback URLs.
-- Torrent search, indexers, or browser Torrent clients. Owner-supplied Magnet
-  URIs and private `.torrent` metadata are now approved through Webtor Self-Hosted.
+- Torrent search/indexers are excluded. The approved Webtor torrent path and the
+  browser-only `local_p2p` Stream from Device path are both supported.
 - Native mobile applications.
 - Smart-TV applications.
 - Admin dashboards unrelated to the watch-room MVP.
@@ -151,9 +151,8 @@ Supabase stores control-plane data only.
 The actual media path is:
 
 ```text
-External Media Host  ---> Viewer A browser
-External Media Host  ---> Viewer B browser
-External Media Host  ---> Viewer C browser
+External Media Host  ---> Viewer browsers
+Owner browser File    ---> WebRTC P2P room peers (`local_p2p`)
 ```
 
 It is never:
@@ -497,15 +496,19 @@ Semantics:
 
 ### `media_source_type`
 
-MVP values:
+Implemented values:
 
 ```text
 auto
 mp4
 hls
+youtube
+torrent
+local_p2p
 ```
 
-Do not expand source types unless actual implementation requires them.
+`local_p2p` stores only a room-authorized descriptor (info hash, magnet, file name,
+and size); Supabase never stores or fetches the movie bytes.
 
 ---
 
@@ -1443,6 +1446,9 @@ Implemented source types:
 - YouTube identity resolved by the existing YouTube adapter.
 - Torrent identity (`infoHash` plus one selected file) resolved at runtime by
   Webtor Self-Hosted into browser-playable HTTP/HLS.
+- Local device identity (`infoHash`, room-private magnet, file name, and size)
+  resolved by browser WebTorrent/WebRTC peers. Peer availability is local state,
+  not canonical playback state, and no per-peer telemetry is persisted.
 
 Preferred MP4 encoding for browser compatibility remains H.264 video + AAC audio where the source provides it.
 

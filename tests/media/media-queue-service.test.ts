@@ -241,4 +241,41 @@ describe("media queue service", () => {
     }));
     randomUuid.mockRestore();
   });
+
+  it("stores a generated local P2P descriptor through its owner RPC", async () => {
+    const localItem: MediaItem = {
+      ...item(mediaA, 0),
+      source_url: null,
+      source_type: "local_p2p",
+      torrent_info_hash: "0123456789abcdef0123456789abcdef01234567",
+      torrent_input_kind: "magnet",
+      torrent_magnet_uri: "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567",
+      torrent_name: "Movie.mp4",
+      torrent_file_index: 0,
+      torrent_file_path: "Movie.mp4",
+      torrent_file_name: "Movie.mp4",
+      torrent_file_size: 12_345,
+    };
+    const { client, rpc } = createClientMock({ data: [localItem], error: null });
+    vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValue(mediaA);
+    const service = createMediaQueueService(client);
+    await expect(service.addMedia(roomId, {
+      title: "Movie",
+      sourceType: "local_p2p",
+      localP2p: {
+        infoHash: localItem.torrent_info_hash!,
+        magnetUri: localItem.torrent_magnet_uri!,
+        fileName: localItem.torrent_file_name!,
+        fileSize: localItem.torrent_file_size!,
+        mimeType: "video/mp4",
+      },
+    })).resolves.toEqual(localItem);
+    expect(rpc).toHaveBeenCalledWith("add_local_p2p_media_item", expect.objectContaining({
+      p_media_id: mediaA,
+      p_info_hash: localItem.torrent_info_hash,
+      p_magnet_uri: localItem.torrent_magnet_uri,
+      p_file_size: localItem.torrent_file_size,
+    }));
+    vi.restoreAllMocks();
+  });
 });

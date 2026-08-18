@@ -293,6 +293,47 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      add_local_p2p_media_item: {
+        Args: {
+          p_file_name: string
+          p_file_size: number
+          p_info_hash: string
+          p_magnet_uri: string
+          p_media_id: string
+          p_room_id: string
+          p_title: string
+        }
+        Returns: {
+          created_at: string
+          created_by: string
+          id: string
+          queue_position: number
+          room_id: string
+          source_revision: number
+          source_type: Database["public"]["Enums"]["media_source_type"]
+          source_url: string | null
+          title: string
+          torrent_file_index: number | null
+          torrent_file_name: string | null
+          torrent_file_path: string | null
+          torrent_file_size: number | null
+          torrent_info_hash: string | null
+          torrent_input_kind:
+            | Database["public"]["Enums"]["torrent_input_kind"]
+            | null
+          torrent_magnet_uri: string | null
+          torrent_metadata_path: string | null
+          torrent_name: string | null
+          updated_at: string
+          youtube_video_id: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "media_items"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       add_media_item: {
         Args: {
           p_media_id?: string
@@ -376,6 +417,18 @@ export type Database = {
           storage_path: string
         }[]
       }
+      deactivate_room: {
+        Args: { p_room_id: string }
+        Returns: {
+          created_at: string
+          deactivated_at: string
+          id: string
+          name: string
+          owner_user_id: string
+          status: Database["public"]["Enums"]["room_status"]
+          updated_at: string
+        }[]
+      }
       delete_subtitle_metadata: {
         Args: { p_room_id: string; p_subtitle_id: string }
         Returns: {
@@ -390,45 +443,46 @@ export type Database = {
           storage_path: string
         }[]
       }
-      deactivate_room: {
-        Args: { p_room_id: string }
+      edit_local_p2p_media_item: {
+        Args: {
+          p_file_name: string
+          p_file_size: number
+          p_info_hash: string
+          p_magnet_uri: string
+          p_media_id: string
+          p_room_id: string
+          p_title: string
+        }
         Returns: {
           created_at: string
-          deactivated_at: string | null
+          created_by: string
           id: string
-          name: string
-          owner_user_id: string
-          status: Database["public"]["Enums"]["room_status"]
+          queue_position: number
+          room_id: string
+          source_revision: number
+          source_type: Database["public"]["Enums"]["media_source_type"]
+          source_url: string | null
+          title: string
+          torrent_file_index: number | null
+          torrent_file_name: string | null
+          torrent_file_path: string | null
+          torrent_file_size: number | null
+          torrent_info_hash: string | null
+          torrent_input_kind:
+            | Database["public"]["Enums"]["torrent_input_kind"]
+            | null
+          torrent_magnet_uri: string | null
+          torrent_metadata_path: string | null
+          torrent_name: string | null
           updated_at: string
+          youtube_video_id: string | null
         }[]
-      }
-      hard_delete_room: {
-        Args: { p_room_id: string }
-        Returns: { id: string }[]
-      }
-      list_owned_rooms: {
-        Args: { p_include_deactivated?: boolean }
-        Returns: {
-          created_at: string
-          deactivated_at: string | null
-          id: string
-          name: string
-          owner_user_id: string
-          status: Database["public"]["Enums"]["room_status"]
-          updated_at: string
-        }[]
-      }
-      reactivate_room: {
-        Args: { p_room_id: string }
-        Returns: {
-          created_at: string
-          deactivated_at: string | null
-          id: string
-          name: string
-          owner_user_id: string
-          status: Database["public"]["Enums"]["room_status"]
-          updated_at: string
-        }[]
+        SetofOptions: {
+          from: "*"
+          to: "media_items"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       edit_media_item: {
         Args: {
@@ -479,6 +533,15 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      get_local_p2p_source: {
+        Args: { p_media_id: string; p_room_id: string }
+        Returns: {
+          file_name: string
+          file_size: number
+          info_hash: string
+          magnet_uri: string
+        }[]
+      }
       get_room_join_preview: {
         Args: { p_room_id: string }
         Returns: {
@@ -493,6 +556,12 @@ export type Database = {
         Returns: Json
       }
       get_server_time: { Args: never; Returns: string }
+      hard_delete_room: {
+        Args: { p_room_id: string }
+        Returns: {
+          id: string
+        }[]
+      }
       join_room: {
         Args: { p_display_name: string; p_room_id: string }
         Returns: {
@@ -502,6 +571,30 @@ export type Database = {
           session_id: string
           updated_at: string
           user_id: string
+        }[]
+      }
+      list_owned_rooms: {
+        Args: { p_include_deactivated?: boolean }
+        Returns: {
+          created_at: string
+          deactivated_at: string
+          id: string
+          name: string
+          owner_user_id: string
+          status: Database["public"]["Enums"]["room_status"]
+          updated_at: string
+        }[]
+      }
+      reactivate_room: {
+        Args: { p_room_id: string }
+        Returns: {
+          created_at: string
+          deactivated_at: string
+          id: string
+          name: string
+          owner_user_id: string
+          status: Database["public"]["Enums"]["room_status"]
+          updated_at: string
         }[]
       }
       remove_media_item: {
@@ -686,7 +779,13 @@ export type Database = {
       }
     }
     Enums: {
-      media_source_type: "auto" | "mp4" | "hls" | "youtube" | "torrent"
+      media_source_type:
+        | "auto"
+        | "mp4"
+        | "hls"
+        | "youtube"
+        | "torrent"
+        | "local_p2p"
       playback_status: "idle" | "paused" | "playing" | "ended"
       room_status: "active" | "deactivated"
       torrent_input_kind: "magnet" | "torrent_file"
@@ -696,7 +795,6 @@ export type Database = {
     }
   }
 }
-
 type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
 
 type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
@@ -817,7 +915,14 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      media_source_type: ["auto", "mp4", "hls", "youtube", "torrent"],
+      media_source_type: [
+        "auto",
+        "mp4",
+        "hls",
+        "youtube",
+        "torrent",
+        "local_p2p",
+      ],
       playback_status: ["idle", "paused", "playing", "ended"],
       room_status: ["active", "deactivated"],
       torrent_input_kind: ["magnet", "torrent_file"],
